@@ -4,7 +4,7 @@
 #SBATCH --job-name=fed_flexlora
 #SBATCH --tasks-per-node=1
 #SBATCH --time=24:00:00
-#SBATCH --output=/mimer/NOBACKUP/groups/bloom/shenghui/hfl/federated_pathvqa/fed_flexlora_%j.out
+#SBATCH --output=/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/fed_flexlora_%j.out
 
 ml load CUDA/12.6.0
 ml load GCCcore/12.3.0
@@ -12,7 +12,7 @@ export TORCHDYNAMO_DISABLE=1
 export UNSLOTH_RETURN_LOGITS=1
 
 PYTHON="/mimer/NOBACKUP/groups/bloom/shenghui/miniconda3/envs/visper/bin/python -u"
-SIM_DIR=/mimer/NOBACKUP/groups/bloom/shenghui/hfl/federated_pathvqa
+SIM_DIR=/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora
 
 # FlexLoRA with heterogeneous ranks: 4, 16, 32, 64
 $PYTHON $SIM_DIR/run_simulation.py \

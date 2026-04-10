@@ -113,6 +113,8 @@ def _run_client_batch(batch, gpu_ids, round_idx, output_dir, num_clients,
         with open(log_path, "w") as f:
             p = subprocess.Popen(cmd, env=env, stdout=f, stderr=subprocess.STDOUT)
         processes.append((client_id, p))
+        import time
+        time.sleep(4) # Stagger launches to prevent unsloth inspect.getsource crash
 
     ok = True
     for client_id, p in processes:
@@ -208,6 +210,9 @@ def run_round(
         "--mode",        "hetlora" if hetlora else "flexlora" if flexlora else "fedavg",
         "--global_rank", str(global_rank),
     ]
+    if global_model_path:
+        agg_cmd += ["--global_model_path", global_model_path]
+        
     if subprocess.run(agg_cmd).returncode != 0:
         print(f"ERROR: Aggregation failed in round {round_idx}")
         return False

@@ -117,7 +117,7 @@ def aggregate_lora(client_dirs, output_dir):
 
 # ── FlexLoRA ──────────────────────────────────────────────────────────────────
 
-def aggregate_flexlora(client_dirs, output_dir, global_rank, client_weights=None):
+def aggregate_flexlora(client_dirs, output_dir, global_rank, client_weights=None, global_model_path=None):
     """
     FlexLoRA aggregation (NeurIPS 2024):
 
@@ -141,6 +141,7 @@ def aggregate_flexlora(client_dirs, output_dir, global_rank, client_weights=None
         global_rank:    target rank of the global adapter (≥ max client rank)
         client_weights: optional list of per-client weights (e.g. dataset sizes);
                         defaults to uniform weights
+        global_model_path: path to the previous global model for delta-updates
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -167,25 +168,49 @@ def aggregate_flexlora(client_dirs, output_dir, global_rank, client_weights=None
         a_key, b_key = keys["A"], keys["B"]
 
         # Compute weighted average of ΔW = B @ A across clients.
-        # Track effective_w separately so missing clients don't dilute the average.
         delta_W_sum = None
         effective_w = 0.0
-        for w, sd in zip(client_weights, state_dicts):
+        
+        global_ref = None
+        if global_model_path and os.path.exists(global_model_path):
+            global_ref = _load_adapter(global_model_path)
+
+        for w, sd, r_k in zip(client_weights, state_dicts, client_ranks):
             if a_key not in sd or b_key not in sd:
                 continue
             A = sd[a_key].float()   # [r_k, in]
             B = sd[b_key].float()   # [out, r_k]
-            dW = B @ A              # [out, in]
-            delta_W_sum = (w * dW) if delta_W_sum is None else delta_W_sum + w * dW
+            dW_client = B @ A       # [out, in]
+            
+            if global_ref is not None and a_key in global_ref and b_key in global_ref:
+                A_g_ref = global_ref[a_key].float()
+                B_g_ref = global_ref[b_key].float()
+                W_g = B_g_ref @ A_g_ref
+                orig_dtype = A.dtype
+                A_proj, B_proj = _svd_to_rank(W_g, r_k, orig_dtype)
+                dW_start = (B_proj.float() @ A_proj.float())
+                delta_k = dW_client - dW_start
+            else:
+                delta_k = dW_client
+                
+            delta_W_sum = (w * delta_k) if delta_W_sum is None else delta_W_sum + w * delta_k
             effective_w += w
 
         if delta_W_sum is None:
             continue
 
-        avg_dW = delta_W_sum / effective_w
+        avg_delta = delta_W_sum / effective_w
+        
+        if global_ref is not None and a_key in global_ref and b_key in global_ref:
+            A_g_ref = global_ref[a_key].float()
+            B_g_ref = global_ref[b_key].float()
+            W_g = B_g_ref @ A_g_ref
+            W_new = W_g + avg_delta
+        else:
+            W_new = avg_delta
 
         orig_dtype = next(sd[a_key].dtype for sd in state_dicts if a_key in sd)
-        A_g, B_g = _svd_to_rank(avg_dW, global_rank, orig_dtype)
+        A_g, B_g = _svd_to_rank(W_new, global_rank, orig_dtype)
         global_sd[a_key] = A_g
         global_sd[b_key] = B_g
 
@@ -307,15 +332,7 @@ def aggregate_hetlora(client_dirs, output_dir, global_rank):
 
         A_avg = torch.zeros(r_max, in_dim, dtype=torch.float32)
         B_avg = torch.zeros(out_dim, r_max, dtype=torch.float32)
-
-        # Renormalize weights to account for any clients missing this layer
-        present_w = sum(
-            sparsity_weights[c_idx]
-            for c_idx, sd in enumerate(state_dicts)
-            if a_key in sd and b_key in sd
-        )
-        if present_w < 1e-9:
-            continue
+        weight_sum = torch.zeros(r_max, dtype=torch.float32)
 
         for c_idx, (sd, w) in enumerate(zip(state_dicts, sparsity_weights)):
             if a_key not in sd or b_key not in sd:
@@ -330,11 +347,13 @@ def aggregate_hetlora(client_dirs, output_dir, global_rank):
                     f"Client {c_idx} rank {r_k} > global_rank {r_max} for layer {bk}"
                 )
 
-            # Zero-padding is implicit: only add to the first r_k rows/cols.
-            # Divide by present_w so weights sum to 1 even when clients are missing.
-            w_norm = w / present_w
-            A_avg[:r_k, :] += w_norm * A_k
-            B_avg[:, :r_k] += w_norm * B_k
+            A_avg[:r_k, :] += w * A_k
+            B_avg[:, :r_k] += w * B_k
+            weight_sum[:r_k] += w
+
+        weight_sum = weight_sum.clamp(min=1e-9)
+        A_avg = A_avg / weight_sum.unsqueeze(1)
+        B_avg = B_avg / weight_sum.unsqueeze(0)
 
         global_sd[a_key] = A_avg.to(orig_dtype)
         global_sd[b_key] = B_avg.to(orig_dtype)
@@ -464,6 +483,8 @@ def main():
     parser.add_argument("--client_weights", type=float, nargs="*", default=None,
                         help="Optional per-client weights for FlexLoRA (e.g. dataset sizes). "
                              "Defaults to uniform weighting.")
+    parser.add_argument("--global_model_path", type=str, default=None,
+                        help="Optional path to previous global model for FlexLoRA Delta update.")
     args = parser.parse_args()
 
     if args.mode == "hetlora":
@@ -478,6 +499,7 @@ def main():
             args.output_dir,
             args.global_rank,
             client_weights=args.client_weights,
+            global_model_path=args.global_model_path,
         )
     else:
         aggregate_lora(args.client_dirs, args.output_dir)

@@ -162,11 +162,11 @@ class FLSFTTrainer(SFTTrainer):
         # Collect LoRA parameters
         lora_params = {}
         for name, param in model.named_parameters():
-            if "lora_A.weight" in name:
-                base = name.replace(".lora_A.weight", "")
+            if "lora_A" in name and "weight" in name:
+                base = name.split(".lora_A")[0]
                 lora_params.setdefault(base, {})["A"] = param
-            elif "lora_B.weight" in name:
-                base = name.replace(".lora_B.weight", "")
+            elif "lora_B" in name and "weight" in name:
+                base = name.split(".lora_B")[0]
                 lora_params.setdefault(base, {})["B"] = param
 
         for base, params in lora_params.items():
@@ -447,16 +447,17 @@ def main():
         r_prune_start = int(args.rank * args.het_gamma)
         print(f"[Client {args.client_id}] HetLoRA: Monitoring ranks {r_prune_start} to {args.rank} for pruning...")
         sd = model.state_dict()
-        for name, param in model.named_parameters():
-            if "lora_A.weight" in name:
-                base = name.replace(".lora_A.weight", "")
-                b_key = f"{base}.lora_B.weight"
+        for key in sd:
+            if "lora_A" in key and "weight" in key:
+                base = key.split(".lora_A")[0]
+                suffix = key.split(".lora_A")[1]
+                b_key = f"{base}.lora_B{suffix}"
                 if b_key in sd:
-                    A_part = param.data[r_prune_start:, :].float()
+                    A_part = sd[key].data[r_prune_start:, :].float()
                     B_part = sd[b_key].data[:, r_prune_start:].float()
                     # Frobenius norm of contribution: ||B_part @ A_part||_F^2
                     norm_sq = torch.norm(B_part @ A_part, p='fro').item() ** 2
-                    initial_norms[base] = norm_sq
+                    initial_norms[base] = {"norm_sq": norm_sq, "suffix": suffix}
 
     model.print_trainable_parameters()
 
@@ -557,13 +558,14 @@ def main():
     # ── [HetLoRA] rank self-pruning ──
     final_rank = args.rank
     if args.hetlora:
-        total_initial = sum(initial_norms.values())
+        total_initial = sum(info["norm_sq"] for info in initial_norms.values())
         total_final = 0
         r_prune_start = int(args.rank * args.het_gamma)
         sd = model.state_dict()
-        for base, init_norm in initial_norms.items():
-            a_key = f"{base}.lora_A.weight"
-            b_key = f"{base}.lora_B.weight"
+        for base, info in initial_norms.items():
+            suffix = info["suffix"]
+            a_key = f"{base}.lora_A{suffix}"
+            b_key = f"{base}.lora_B{suffix}"
             if a_key in sd and b_key in sd:
                 A_part = sd[a_key].data[r_prune_start:, :].float()
                 B_part = sd[b_key].data[:, r_prune_start:].float()
@@ -586,9 +588,9 @@ def main():
             pruned_sd = {}
             for k, v in saved_sd.items():
                 if ".lora_A.weight" in k:
-                    pruned_sd[k] = v[:final_rank, :]
+                    pruned_sd[k] = v[:final_rank, :].contiguous()
                 elif ".lora_B.weight" in k:
-                    pruned_sd[k] = v[:, :final_rank]
+                    pruned_sd[k] = v[:, :final_rank].contiguous()
                 else:
                     pruned_sd[k] = v
 
