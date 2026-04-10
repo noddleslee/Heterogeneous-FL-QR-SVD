@@ -137,10 +137,51 @@ class FLSFTTrainer(SFTTrainer):
         those are loaded by separate HuggingFace Trainer methods.
     """
 
-    def __init__(self, total_rounds: int, steps_per_round: int, *args, **kwargs):
+    def __init__(self, total_rounds: int, steps_per_round: int,
+                 hetlora: bool = False, het_lambda: float = 0.0, het_gamma: float = 0.5,
+                 rank: int = 16, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.total_rounds = total_rounds
         self.steps_per_round = steps_per_round
+        self.hetlora = hetlora
+        self.het_lambda = het_lambda
+        self.het_gamma = het_gamma
+        self.rank = rank
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        if not self.hetlora or self.het_lambda <= 0:
+            return super().compute_loss(model, inputs, return_outputs=return_outputs, num_items_in_batch=num_items_in_batch)
+
+        # Handle return_outputs=True case for super().compute_loss
+        res = super().compute_loss(model, inputs, return_outputs=True, num_items_in_batch=num_items_in_batch)
+        loss, outputs = res if isinstance(res, tuple) else (res, None)
+
+        reg_loss = 0
+        r_prune_start = int(self.rank * self.het_gamma)
+
+        # Collect LoRA parameters
+        lora_params = {}
+        for name, param in model.named_parameters():
+            if "lora_A.weight" in name:
+                base = name.replace(".lora_A.weight", "")
+                lora_params.setdefault(base, {})["A"] = param
+            elif "lora_B.weight" in name:
+                base = name.replace(".lora_B.weight", "")
+                lora_params.setdefault(base, {})["B"] = param
+
+        for base, params in lora_params.items():
+            if "A" in params and "B" in params:
+                A = params["A"]  # [r, in]
+                B = params["B"]  # [out, r]
+                # Pruning regularization on ranks r_prune_start:r
+                A_part = A[r_prune_start:, :]
+                B_part = B[:, r_prune_start:]
+                # Penalty: lambda * ||B_part||_F * ||A_part||_F
+                reg_loss += torch.norm(A_part, p='fro') * torch.norm(B_part, p='fro')
+
+        total_loss = loss + self.het_lambda * reg_loss
+
+        return (total_loss, outputs) if return_outputs else total_loss
 
     def create_scheduler(self, num_training_steps: int, optimizer=None):
         total = self.total_rounds * self.steps_per_round
@@ -250,6 +291,44 @@ def project_and_load_adapter(global_adapter_dir: str, model, local_rank: int):
     print(f"  Projected global adapter rank {global_rank} → local rank {local_rank}")
 
 
+def truncate_and_load_adapter(global_adapter_dir: str, model, local_rank: int):
+    """
+    HetLoRA distribution: truncate global LoRA modules to local rank.
+
+    The global adapter has B ∈ ℝ^{d×r_max}, A ∈ ℝ^{r_max×l}.
+    For a client with rank r_k < r_max, we simply slice:
+      B_local = B[:, :r_k]   →  [d, r_k]
+      A_local = A[:r_k, :]   →  [r_k, l]
+
+    This is the truncation-based distribution from the HetLoRA paper,
+    NOT the SVD-based projection used in FlexLoRA.
+    """
+    from peft import set_peft_model_state_dict
+
+    global_rank = _infer_adapter_rank(global_adapter_dir)
+    global_sd = _load_safetensors(global_adapter_dir)
+
+    if local_rank >= global_rank:
+        # No truncation needed — load directly
+        incompatible = set_peft_model_state_dict(model, global_sd)
+        _warn_incompatible(incompatible)
+        print(f"  HetLoRA: loaded global adapter (rank={global_rank}) without truncation")
+        return
+
+    truncated = {}
+    for k, v in global_sd.items():
+        if ".lora_A.weight" in k:
+            truncated[k] = v[:local_rank, :]   # [r_max, in] → [r_k, in]
+        elif ".lora_B.weight" in k:
+            truncated[k] = v[:, :local_rank]   # [out, r_max] → [out, r_k]
+        else:
+            truncated[k] = v
+
+    incompatible = set_peft_model_state_dict(model, truncated)
+    _warn_incompatible(incompatible)
+    print(f"  HetLoRA: truncated global adapter rank {global_rank} → local rank {local_rank}")
+
+
 def _warn_incompatible(result):
     if result is None:
         return
@@ -284,6 +363,11 @@ def main():
     parser.add_argument("--max_steps",    type=int, default=-1,
                         help="Steps per FL round (>0 enables stateful training). "
                              "-1 = full-epoch mode (legacy, no state persistence).")
+    # HetLoRA
+    parser.add_argument("--hetlora",     action="store_true")
+    parser.add_argument("--het_lambda",  type=float, default=0.01)
+    parser.add_argument("--het_gamma",   type=float, default=0.5)
+
     args = parser.parse_args()
 
     if args.global_rank is None:
@@ -336,13 +420,33 @@ def main():
         )
         print(f"[Client {args.client_id}] Loading global adapter from {adapter_path}")
 
-        if args.flexlora and args.rank < args.global_rank:
+        if args.hetlora:
+            # HetLoRA: truncate global adapter to local rank
+            truncate_and_load_adapter(adapter_path, model, args.rank)
+        elif args.flexlora and args.rank < args.global_rank:
             project_and_load_adapter(adapter_path, model, args.rank)
         else:
             from peft import load_peft_weights, set_peft_model_state_dict
             weights = load_peft_weights(adapter_path)
             set_peft_model_state_dict(model, weights)
             print(f"  Loaded global adapter directly (rank={args.rank})")
+
+    # ── [HetLoRA] store initial norm for pruning decision ──
+    initial_norms = {}
+    if args.hetlora:
+        r_prune_start = int(args.rank * args.het_gamma)
+        print(f"[Client {args.client_id}] HetLoRA: Monitoring ranks {r_prune_start} to {args.rank} for pruning...")
+        sd = model.state_dict()
+        for name, param in model.named_parameters():
+            if "lora_A.weight" in name:
+                base = name.replace(".lora_A.weight", "")
+                b_key = f"{base}.lora_B.weight"
+                if b_key in sd:
+                    A_part = param.data[r_prune_start:, :].float()
+                    B_part = sd[b_key].data[:, r_prune_start:].float()
+                    # Frobenius norm of contribution: ||B_part @ A_part||_F^2
+                    norm_sq = torch.norm(B_part @ A_part, p='fro').item() ** 2
+                    initial_norms[base] = norm_sq
 
     model.print_trainable_parameters()
 
@@ -383,6 +487,10 @@ def main():
         trainer = FLSFTTrainer(
             total_rounds=args.total_rounds,
             steps_per_round=args.max_steps,
+            hetlora=args.hetlora,
+            het_lambda=args.het_lambda,
+            het_gamma=args.het_gamma,
+            rank=args.rank,
             model=model,
             tokenizer=tokenizer,
             data_collator=UnslothVisionDataCollator(model, tokenizer),
@@ -436,10 +544,65 @@ def main():
     print(f"\n[Client {args.client_id}] Starting round {args.round} training …")
     trainer.train(resume_from_checkpoint=resume_ckpt)
 
-    # ── save adapter to per-round dir for aggregation ──
-    model.save_pretrained(client_output_dir)
+    # ── [HetLoRA] rank self-pruning ──
+    final_rank = args.rank
+    if args.hetlora:
+        total_initial = sum(initial_norms.values())
+        total_final = 0
+        r_prune_start = int(args.rank * args.het_gamma)
+        sd = model.state_dict()
+        for base, init_norm in initial_norms.items():
+            a_key = f"{base}.lora_A.weight"
+            b_key = f"{base}.lora_B.weight"
+            if a_key in sd and b_key in sd:
+                A_part = sd[a_key].data[r_prune_start:, :].float()
+                B_part = sd[b_key].data[:, r_prune_start:].float()
+                total_final += torch.norm(B_part @ A_part, p='fro').item() ** 2
+
+        print(f"[Client {args.client_id}] HetLoRA: last ranks norm {total_initial:.6f} -> {total_final:.6f}")
+        if total_final < total_initial:
+            final_rank = r_prune_start
+            print(f"[Client {args.client_id}] HetLoRA: Pruning ranks {r_prune_start} to {args.rank} (New Rank: {final_rank})")
+        else:
+            print(f"[Client {args.client_id}] HetLoRA: No pruning (norms increased). Keeping rank={args.rank}")
+
+        # Save the adapter first (full rank)
+        model.save_pretrained(client_output_dir)
+
+        if final_rank < args.rank:
+            # Prune: slice LoRA weights and overwrite saved files
+            from safetensors.torch import save_file
+            saved_sd = _load_safetensors(client_output_dir)
+            pruned_sd = {}
+            for k, v in saved_sd.items():
+                if ".lora_A.weight" in k:
+                    pruned_sd[k] = v[:final_rank, :]
+                elif ".lora_B.weight" in k:
+                    pruned_sd[k] = v[:, :final_rank]
+                else:
+                    pruned_sd[k] = v
+
+            save_file(pruned_sd, os.path.join(client_output_dir, "adapter_model.safetensors"))
+
+            # Update adapter_config.json with pruned rank
+            with open(os.path.join(client_output_dir, "adapter_config.json"), "r") as f:
+                cfg = json.load(f)
+            cfg["r"] = final_rank
+            cfg["lora_alpha"] = final_rank * 2
+            with open(os.path.join(client_output_dir, "adapter_config.json"), "w") as f:
+                json.dump(cfg, f, indent=2)
+    else:
+        model.save_pretrained(client_output_dir)
+
     print(f"[Client {args.client_id}] Training done. "
-          f"Adapter (rank={args.rank}) saved to {client_output_dir}")
+          f"Adapter (rank={final_rank}) saved to {client_output_dir}")
+
+    # ── [HetLoRA] persist pruned rank for future rounds ──
+    if args.hetlora:
+        rank_file = os.path.join(args.output_dir, f"client_{args.client_id}_rank.json")
+        with open(rank_file, "w") as f:
+            json.dump({"rank": final_rank, "round": args.round}, f)
+        print(f"[Client {args.client_id}] Persisted rank={final_rank} to {rank_file}")
 
 
 if __name__ == "__main__":

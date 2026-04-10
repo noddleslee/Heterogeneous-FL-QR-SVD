@@ -18,12 +18,13 @@ FL modes
 """
 
 import argparse
+import json
 import math
 import os
 import subprocess
 
 PYTHON_EXE = ["/mimer/NOBACKUP/groups/bloom/shenghui/miniconda3/envs/visper/bin/python", "-u"]
-BASE_DIR   = "/mimer/NOBACKUP/groups/bloom/shenghui/hfl/federated_pathvqa"
+BASE_DIR   = "/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora"
 
 
 # ── GPU detection ──────────────────────────────────────────────────────────────
@@ -46,7 +47,7 @@ def detect_num_gpus() -> int:
 def _build_client_cmd(
     client_id, num_clients, round_idx, output_dir, base_model,
     local_rank, global_rank, epochs, max_steps, total_rounds,
-    global_model_path, flexlora,
+    global_model_path, flexlora, hetlora=False, het_lambda=0.01, het_gamma=0.5,
 ):
     cmd = PYTHON_EXE + [
         os.path.join(BASE_DIR, "train_client.py"),
@@ -65,6 +66,8 @@ def _build_client_cmd(
         cmd += ["--global_model_path", global_model_path]
     if flexlora:
         cmd.append("--flexlora")
+    if hetlora:
+        cmd += ["--hetlora", "--het_lambda", str(het_lambda), "--het_gamma", str(het_gamma)]
     return cmd
 
 
@@ -72,7 +75,7 @@ def _build_client_cmd(
 
 def _run_client_batch(batch, gpu_ids, round_idx, output_dir, num_clients,
                       base_model, global_rank, epochs, max_steps, total_rounds,
-                      global_model_path, flexlora):
+                      global_model_path, flexlora, hetlora=False, het_lambda=0.01, het_gamma=0.5):
     """
     Launch one batch of clients in parallel, one process per GPU slot.
 
@@ -99,6 +102,9 @@ def _run_client_batch(batch, gpu_ids, round_idx, output_dir, num_clients,
             total_rounds=total_rounds,
             global_model_path=global_model_path,
             flexlora=flexlora,
+            hetlora=hetlora,
+            het_lambda=het_lambda,
+            het_gamma=het_gamma,
         )
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = str(gpu_ids[slot])
@@ -134,14 +140,19 @@ def run_round(
     total_rounds,
     gpu_ids,          # list[int], detected or user-specified
     flexlora=False,
+    hetlora=False,
+    het_lambda=0.01,
+    het_gamma=0.5,
 ):
     num_gpus = len(gpu_ids)
     num_batches = math.ceil(num_clients / num_gpus)
 
-    print(f"\n{'='*60}")
     print(f"  ROUND {round_idx}"
           + (f"  [FlexLoRA ranks={client_ranks}, global_rank={global_rank}]"
-             if flexlora else f"  [FedAvg rank={global_rank}]"))
+             if flexlora else
+             f"  [HetLoRA ranks={client_ranks}, global_rank={global_rank}]"
+             if hetlora else
+             f"  [FedAvg rank={global_rank}]"))
     print(f"  {num_clients} clients / {num_gpus} GPUs → {num_batches} batch(es)")
     print("=" * 60)
 
@@ -175,6 +186,9 @@ def run_round(
             total_rounds      = total_rounds,
             global_model_path = global_model_path,
             flexlora          = flexlora,
+            hetlora           = hetlora,
+            het_lambda        = het_lambda,
+            het_gamma         = het_gamma,
         )
         if not ok:
             return False
@@ -191,7 +205,7 @@ def run_round(
         os.path.join(BASE_DIR, "aggregate.py"),
         "--client_dirs", *client_dirs,
         "--output_dir",  global_dir,
-        "--mode",        "flexlora" if flexlora else "fedavg",
+        "--mode",        "hetlora" if hetlora else "flexlora" if flexlora else "fedavg",
         "--global_rank", str(global_rank),
     ]
     if subprocess.run(agg_cmd).returncode != 0:
@@ -258,8 +272,16 @@ def main():
     parser.add_argument("--flexlora", action="store_true",
                         help="Enable FlexLoRA with heterogeneous client ranks")
     parser.add_argument("--ranks", type=int, nargs="+", default=None,
-                        help="Per-client LoRA ranks for FlexLoRA (cycles if shorter than "
+                        help="Per-client LoRA ranks for FlexLoRA/HetLoRA (cycles if shorter than "
                              "num_clients). Default: [4, 16, 32, 64]")
+
+    # HetLoRA
+    parser.add_argument("--hetlora", action="store_true",
+                        help="Enable HetLoRA (EMNLP 2024)")
+    parser.add_argument("--het_lambda", type=float, default=0.01,
+                        help="Pruning regularization coefficient for HetLoRA")
+    parser.add_argument("--het_gamma", type=float, default=0.5,
+                        help="Pruning ratio for HetLoRA (fraction of ranks to consider for pruning)")
 
     args = parser.parse_args()
 
@@ -277,6 +299,11 @@ def main():
         client_ranks = [base_ranks[i % len(base_ranks)] for i in range(args.num_clients)]
         global_rank  = max(client_ranks)
         mode_str     = f"FlexLoRA  client_ranks={client_ranks}  global_rank={global_rank}"
+    elif args.hetlora:
+        base_ranks   = args.ranks or [4, 16, 32, 64]
+        client_ranks = [base_ranks[i % len(base_ranks)] for i in range(args.num_clients)]
+        global_rank  = max(client_ranks)
+        mode_str     = f"HetLoRA  client_ranks={client_ranks}  global_rank={global_rank} lambda={args.het_lambda} gamma={args.het_gamma}"
     else:
         client_ranks = [args.rank] * args.num_clients
         global_rank  = args.rank
@@ -295,6 +322,19 @@ def main():
     print(f"{'='*60}")
 
     for r in range(args.num_rounds):
+        # ── [HetLoRA] update client ranks from persistent state ──
+        if args.hetlora and r > 0:
+            for i in range(args.num_clients):
+                rank_file = os.path.join(args.output_dir, f"client_{i}_rank.json")
+                if os.path.exists(rank_file):
+                    with open(rank_file) as f:
+                        rank_info = json.load(f)
+                    old_rank = client_ranks[i]
+                    client_ranks[i] = rank_info["rank"]
+                    if client_ranks[i] != old_rank:
+                        print(f"  [HetLoRA] Client {i} rank updated: {old_rank} → {client_ranks[i]} (pruned in round {rank_info['round']})")
+            print(f"  [HetLoRA] Current ranks: {client_ranks}")
+
         ok = run_round(
             round_idx    = r,
             num_clients  = args.num_clients,
@@ -307,6 +347,9 @@ def main():
             total_rounds = args.num_rounds,
             gpu_ids      = gpu_ids,
             flexlora     = args.flexlora,
+            hetlora      = args.hetlora,
+            het_lambda   = args.het_lambda,
+            het_gamma    = args.het_gamma,
         )
         if not ok:
             print(f"\nSimulation aborted at round {r}.")

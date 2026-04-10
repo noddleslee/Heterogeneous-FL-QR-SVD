@@ -4,7 +4,7 @@ import csv
 
 def collect_results():
     base_path = "results"
-    configs = ["fed_sim_flexlora", "fed_sim_rank4", "fed_sim_rank16"]
+    configs = ["fed_sim_flexlora", "fed_sim_rank4", "fed_sim_rank16", "fed_sim_hetlora"]
     rounds = range(10)
     
     data = []

@@ -215,6 +215,150 @@ def aggregate_flexlora(client_dirs, output_dir, global_rank, client_weights=None
     print(f"FlexLoRA aggregation done. Global adapter (rank={global_rank}) saved to {output_dir}")
 
 
+# ── HetLoRA ───────────────────────────────────────────────────────────────────
+
+def aggregate_hetlora(client_dirs, output_dir, global_rank):
+    """
+    HetLoRA aggregation (EMNLP 2024):
+    Zero-padding + sparsity-weighted direct LoRA module averaging.
+
+    Key difference from FlexLoRA: we aggregate LoRA modules (B, A) directly
+    with zero-padding, NOT by reconstructing ΔW = B@A. This preserves
+    cross-client information (see paper Section 3.4, Table 3).
+
+    Algorithm:
+      1. Compute per-client sparsity weight:
+         p_k = ||ΔW_k||_F / Σ||ΔW_j||_F   where ΔW_k = B_k @ A_k
+         (global weight, averaged across all LoRA layers)
+      2. Zero-pad each client's LoRA modules to r_max:
+         B_k ∈ ℝ^{d×r_k} → ℝ^{d×r_max}  (right-pad with zeros)
+         A_k ∈ ℝ^{r_k×l} → ℝ^{r_max×l}  (bottom-pad with zeros)
+      3. Weighted average of padded modules:
+         B_global = Σ p_k * B_k_padded
+         A_global = Σ p_k * A_k_padded
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    state_dicts = [_load_adapter(d) for d in client_dirs]
+    num_clients = len(state_dicts)
+
+    client_ranks = [_infer_rank(sd) for sd in state_dicts]
+    print(f"HetLoRA: aggregating {num_clients} clients, ranks={client_ranks}, "
+          f"global_rank={global_rank} …")
+
+    # ── Step 1: compute global sparsity weight per client ──
+    # Sum ||ΔW_k||_F across all LoRA layers for each client
+    client_norm_sums = [0.0] * num_clients
+
+    # Collect all LoRA pairs (use union of all client keys for robustness)
+    all_pairs = {}
+    for sd in state_dicts:
+        all_pairs.update(_lora_base_keys(sd))
+
+    for bk, keys in sorted(all_pairs.items()):
+        if "A" not in keys or "B" not in keys:
+            continue
+        a_key, b_key = keys["A"], keys["B"]
+
+        for c_idx, sd in enumerate(state_dicts):
+            if a_key not in sd or b_key not in sd:
+                continue
+            A = sd[a_key].float()   # [r_k, in]
+            B = sd[b_key].float()   # [out, r_k]
+            dW = B @ A              # [out, in]
+            client_norm_sums[c_idx] += torch.norm(dW, p='fro').item()
+
+    total_norm = sum(client_norm_sums)
+    if total_norm < 1e-9:
+        sparsity_weights = [1.0 / num_clients] * num_clients
+    else:
+        sparsity_weights = [n / total_norm for n in client_norm_sums]
+
+    print(f"  Sparsity weights: {[f'{w:.4f}' for w in sparsity_weights]}")
+
+    # ── Step 2 & 3: zero-pad and weighted-average LoRA modules ──
+    global_sd = {}
+    r_max = global_rank  # should be max(client_ranks) or the specified global_rank
+
+    for bk, keys in sorted(all_pairs.items()):
+        if "A" not in keys or "B" not in keys:
+            continue
+        a_key, b_key = keys["A"], keys["B"]
+
+        # Determine layer dimensions from first available client
+        ref_sd = None
+        for sd in state_dicts:
+            if a_key in sd and b_key in sd:
+                ref_sd = sd
+                break
+        if ref_sd is None:
+            continue
+
+        in_dim = ref_sd[a_key].shape[1]    # l
+        out_dim = ref_sd[b_key].shape[0]   # d
+        orig_dtype = ref_sd[a_key].dtype
+
+        A_avg = torch.zeros(r_max, in_dim, dtype=torch.float32)
+        B_avg = torch.zeros(out_dim, r_max, dtype=torch.float32)
+
+        for c_idx, (sd, w) in enumerate(zip(state_dicts, sparsity_weights)):
+            if a_key not in sd or b_key not in sd:
+                continue
+
+            A_k = sd[a_key].float()   # [r_k, in]
+            B_k = sd[b_key].float()   # [out, r_k]
+            r_k = A_k.shape[0]
+
+            # Zero-padding is implicit: we only add to the first r_k rows/cols
+            A_avg[:r_k, :] += w * A_k
+            B_avg[:, :r_k] += w * B_k
+
+        global_sd[a_key] = A_avg.to(orig_dtype)
+        global_sd[b_key] = B_avg.to(orig_dtype)
+
+    # ── Average non-LoRA keys normally (uniform average) ──
+    lora_keys = {k for p in all_pairs.values() for k in p.values()}
+    all_other_keys = set()
+    for sd in state_dicts:
+        all_other_keys.update(k for k in sd if k not in lora_keys)
+
+    for key in sorted(all_other_keys):
+        tensors = [sd[key] for sd in state_dicts if key in sd]
+        if len(tensors) == num_clients:
+            try:
+                global_sd[key] = torch.stack(tensors).mean(dim=0)
+            except Exception:
+                global_sd[key] = tensors[0]
+
+    save_file(global_sd, os.path.join(output_dir, "adapter_model.safetensors"))
+
+    # ── write adapter_config.json with global_rank ──
+    # Find a client config to use as base (prefer the highest-rank client)
+    cfg_src = None
+    for d in client_dirs:
+        cfg_candidate = os.path.join(d, "adapter_config.json")
+        if os.path.exists(cfg_candidate):
+            cfg_src = cfg_candidate
+            break
+
+    if cfg_src:
+        with open(cfg_src) as f:
+            cfg = json.load(f)
+        cfg["r"] = global_rank
+        cfg["lora_alpha"] = global_rank * 2
+        with open(os.path.join(output_dir, "adapter_config.json"), "w") as f:
+            json.dump(cfg, f, indent=2)
+
+    for fn in ["tokenizer_config.json", "special_tokens_map.json", "tokenizer.json"]:
+        for d in client_dirs:
+            src = os.path.join(d, fn)
+            if os.path.exists(src):
+                shutil.copy(src, os.path.join(output_dir, fn))
+                break
+
+    print(f"HetLoRA aggregation done. Global adapter (rank={global_rank}) saved to {output_dir}")
+
+
 # ── project global → local rank (for client initialisation) ──────────────────
 
 def project_adapter_to_rank(
@@ -290,7 +434,7 @@ def main():
     parser.add_argument("--output_dir", type=str, required=True,
                         help="Directory to save the aggregated global adapter")
     parser.add_argument("--mode", type=str, default="fedavg",
-                        choices=["fedavg", "flexlora"],
+                        choices=["fedavg", "flexlora", "hetlora"],
                         help="Aggregation mode (default: fedavg)")
     parser.add_argument("--global_rank", type=int, default=64,
                         help="Global LoRA rank for FlexLoRA (default: 64)")
@@ -299,7 +443,13 @@ def main():
                              "Defaults to uniform weighting.")
     args = parser.parse_args()
 
-    if args.mode == "flexlora":
+    if args.mode == "hetlora":
+        aggregate_hetlora(
+            args.client_dirs,
+            args.output_dir,
+            args.global_rank,
+        )
+    elif args.mode == "flexlora":
         aggregate_flexlora(
             args.client_dirs,
             args.output_dir,
