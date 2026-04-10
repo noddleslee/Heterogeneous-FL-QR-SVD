@@ -19,7 +19,7 @@ $PYTHON $SIM_DIR/run_simulation.py \
     --num_rounds 10 \
     --num_clients 4 \
     --num_gpus 4 \
-    --output_dir /mimer/NOBACKUP/groups/bloom/shenghui/hfl/fed_sim_rank16 \
+    --output_dir results/fed_sim_rank16 \
     --rank 16 \
     --base_model Qwen/Qwen3.5-0.8B \
     --epochs 1 \

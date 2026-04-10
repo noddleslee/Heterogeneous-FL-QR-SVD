@@ -155,7 +155,10 @@ def aggregate_flexlora(client_dirs, output_dir, global_rank, client_weights=None
     total_w = sum(client_weights)
 
     # ── aggregate lora_A / lora_B pairs via SVD ──
-    pairs = _lora_base_keys(state_dicts[0])
+    # Build union of all client LoRA keys (robust to heterogeneous target modules)
+    pairs = {}
+    for sd in state_dicts:
+        pairs.update(_lora_base_keys(sd))
     global_sd = {}
 
     for bk, keys in sorted(pairs.items()):
@@ -163,8 +166,10 @@ def aggregate_flexlora(client_dirs, output_dir, global_rank, client_weights=None
             continue
         a_key, b_key = keys["A"], keys["B"]
 
-        # Compute weighted average of ΔW = B @ A across clients
+        # Compute weighted average of ΔW = B @ A across clients.
+        # Track effective_w separately so missing clients don't dilute the average.
         delta_W_sum = None
+        effective_w = 0.0
         for w, sd in zip(client_weights, state_dicts):
             if a_key not in sd or b_key not in sd:
                 continue
@@ -172,22 +177,24 @@ def aggregate_flexlora(client_dirs, output_dir, global_rank, client_weights=None
             B = sd[b_key].float()   # [out, r_k]
             dW = B @ A              # [out, in]
             delta_W_sum = (w * dW) if delta_W_sum is None else delta_W_sum + w * dW
+            effective_w += w
 
         if delta_W_sum is None:
             continue
 
-        avg_dW = delta_W_sum / total_w
+        avg_dW = delta_W_sum / effective_w
 
-        orig_dtype = state_dicts[0][a_key].dtype
+        orig_dtype = next(sd[a_key].dtype for sd in state_dicts if a_key in sd)
         A_g, B_g = _svd_to_rank(avg_dW, global_rank, orig_dtype)
         global_sd[a_key] = A_g
         global_sd[b_key] = B_g
 
     # ── average non-lora_A/lora_B keys normally ──
     lora_keys = {k for p in pairs.values() for k in p.values()}
-    other_keys = [k for k in state_dicts[0] if k not in lora_keys]
-    # Only average keys that exist and have matching shapes in all clients
-    for key in other_keys:
+    all_other_keys: set = set()
+    for sd in state_dicts:
+        all_other_keys.update(k for k in sd if k not in lora_keys)
+    for key in sorted(all_other_keys):
         tensors = [sd[key] for sd in state_dicts if key in sd]
         if len(tensors) == num_clients:
             try:
@@ -301,6 +308,15 @@ def aggregate_hetlora(client_dirs, output_dir, global_rank):
         A_avg = torch.zeros(r_max, in_dim, dtype=torch.float32)
         B_avg = torch.zeros(out_dim, r_max, dtype=torch.float32)
 
+        # Renormalize weights to account for any clients missing this layer
+        present_w = sum(
+            sparsity_weights[c_idx]
+            for c_idx, sd in enumerate(state_dicts)
+            if a_key in sd and b_key in sd
+        )
+        if present_w < 1e-9:
+            continue
+
         for c_idx, (sd, w) in enumerate(zip(state_dicts, sparsity_weights)):
             if a_key not in sd or b_key not in sd:
                 continue
@@ -309,9 +325,16 @@ def aggregate_hetlora(client_dirs, output_dir, global_rank):
             B_k = sd[b_key].float()   # [out, r_k]
             r_k = A_k.shape[0]
 
-            # Zero-padding is implicit: we only add to the first r_k rows/cols
-            A_avg[:r_k, :] += w * A_k
-            B_avg[:, :r_k] += w * B_k
+            if r_k > r_max:
+                raise ValueError(
+                    f"Client {c_idx} rank {r_k} > global_rank {r_max} for layer {bk}"
+                )
+
+            # Zero-padding is implicit: only add to the first r_k rows/cols.
+            # Divide by present_w so weights sum to 1 even when clients are missing.
+            w_norm = w / present_w
+            A_avg[:r_k, :] += w_norm * A_k
+            B_avg[:, :r_k] += w_norm * B_k
 
         global_sd[a_key] = A_avg.to(orig_dtype)
         global_sd[b_key] = B_avg.to(orig_dtype)

@@ -36,28 +36,31 @@
 
 ## Federated Learning Results (10 Rounds)
 
-Comparison of different ranks and heterogeneous LoRA algorithms after 10 communication rounds.
+Comparison of different ranks and heterogeneous LoRA algorithms after 10 communication rounds (Round 9 results).
 
 | Metric | Fixed Rank 4 | Fixed Rank 16 | FlexLoRA (4-64) | HetLoRA (4-64) |
 | :--- | :---: | :---: | :---: | :---: |
-| **Yes/No accuracy** | 0.836 | 0.832 | **0.844** | 0.812 |
-| **Open exact match** | 0.280 | **0.336** | 0.252 | 0.248 |
-| **Open BLEU-1** | 0.3339 | **0.3940** | 0.3160 | 0.3044 |
-| **Overall accuracy** | 0.5580 | **0.5840** | 0.5480 | 0.5300 |
+| **Yes/No accuracy** | 0.836 | **0.856** | 0.828 | 0.792 |
+| **Open exact match** | 0.268 | **0.324** | 0.260 | 0.252 |
+| **Open BLEU-1** | 0.3184 | **0.3885** | 0.3063 | 0.3088 |
+| **Overall accuracy** | 0.5520 | **0.5900** | 0.5440 | 0.5220 |
 
 ---
 
 ## Key Findings
 
-1. **Monotonic performance scaling with rank**: Performance consistently improves as LoRA rank increases (4 → 16 → 64) across all categories. Specifically, rank=16 successfully bridge the gap, capturing about 44% of the accuracy gain between rank=4 and rank=64 while using only 25% of the parameters of rank=64.
+1. **Monotonic performance scaling with rank**: Performance consistently improves as LoRA rank increases (4 → 16 → 64) across all categories. In the local setting, rank=64 is superior, while in Federated Learning, **Fixed Rank 16** consistently outperforms other configurations, reaching a peak overall accuracy of **0.6040** (Round 6).
 
-2. **Train loss fitting**: rank=64 fits training data much better than rank=16/4. However, the diminishing returns in eval loss (0.92 for r16 vs 0.90 for r64) suggest that rank=16 provides a very strong balance between parameter counts and generalization.
+2. **Open-ended reasoning**: Higher rank continues to be critical for open-ended questions. Fixed Rank 16 maintains a significant lead in Open Exact Match (0.324) and BLEU-1 (0.3885) compared to Rank 4 and heterogeneous methods.
 
-3. **Open-ended questions**: The advantage of higher-rank LoRA is particularly pronounced in open-ended VQA, where rank=64 and rank=16 significantly outperform rank=4. In Federated Learning, **Fixed Rank 16** continues to lead in open-ended accuracy (0.336 EM), suggesting that higher rank is essential for complex reasoning tasks even in a collaborative setting.
+3. **Federated vs. Local**: Federated Learning significantly improves performance for lower-rank models. Fixed Rank 4 accuracy increased from **0.5095** (local) to **0.5520** (after 10 rounds of FL).
 
-4. **Federated vs. Local**: Federated Learning significantly improves performance for lower-rank models. Fixed Rank 4 accuracy increased from **0.5095** (local) to **0.5580** (after 10 rounds of FL).
+4. **Heterogeneous Algorithms**: 
+   - **FlexLoRA** achieved an overall accuracy of **0.5440**, which is competitive with the Fixed Rank 4 baseline but slightly lower than Fixed Rank 16.
+   - **HetLoRA** (with sparsity-weighted aggregation) reached **0.5220**. In this 4-client setup, the clients were assigned static ranks (4, 16, 32, 64) and pruning was not triggered as the weight norms remained stable.
+   - Both methods show promise but may require more clients or more heterogeneous resource constraints to demonstrate clear advantages over fixed-rank baselines in this specific dataset.
 
-5. **Heterogeneous Algorithms**: In this 4-client setup, **FlexLoRA** (0.5480) and **HetLoRA** (0.5300) achieved comparable performance but were slightly outperformed by the Fixed Rank 4/16 baselines. This may be due to the small number of clients affecting the benefits of rank adaptation.
+5. **Stability**: Fixed Rank 16 showed the most stable improvement, while FlexLoRA and HetLoRA exhibited more fluctuations across rounds, likely due to the dynamic nature of their parameter updates.
 
 ---
 

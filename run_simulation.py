@@ -333,7 +333,13 @@ def main():
                     client_ranks[i] = rank_info["rank"]
                     if client_ranks[i] != old_rank:
                         print(f"  [HetLoRA] Client {i} rank updated: {old_rank} → {client_ranks[i]} (pruned in round {rank_info['round']})")
-            print(f"  [HetLoRA] Current ranks: {client_ranks}")
+            # Keep global_rank in sync so the server model doesn't hold
+            # unnecessary capacity after all clients have pruned.
+            new_global_rank = max(client_ranks)
+            if new_global_rank != global_rank:
+                print(f"  [HetLoRA] global_rank updated: {global_rank} → {new_global_rank}")
+                global_rank = new_global_rank
+            print(f"  [HetLoRA] Current ranks: {client_ranks}, global_rank: {global_rank}")
 
         ok = run_round(
             round_idx    = r,

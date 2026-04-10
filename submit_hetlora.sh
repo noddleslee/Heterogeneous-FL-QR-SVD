@@ -24,7 +24,7 @@ $PYTHON $SIM_DIR/run_simulation.py \
     --num_rounds 10 \
     --num_clients 4 \
     --num_gpus 4 \
-    --output_dir /mimer/NOBACKUP/groups/bloom/shenghui/hfl/results/fed_sim_hetlora \
+    --output_dir results/fed_sim_hetlora \
     --base_model Qwen/Qwen3.5-0.8B \
     --epochs 1 \
     --max_steps 100

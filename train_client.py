@@ -33,6 +33,7 @@ import argparse, json, os, shutil, warnings
 from pathlib import Path
 
 import torch
+from aggregate import _svd_to_rank
 from datasets import load_dataset
 from PIL import Image, ImageFile
 from unsloth import FastVisionModel
@@ -152,8 +153,7 @@ class FLSFTTrainer(SFTTrainer):
         if not self.hetlora or self.het_lambda <= 0:
             return super().compute_loss(model, inputs, return_outputs=return_outputs, num_items_in_batch=num_items_in_batch)
 
-        # Handle return_outputs=True case for super().compute_loss
-        res = super().compute_loss(model, inputs, return_outputs=True, num_items_in_batch=num_items_in_batch)
+        res = super().compute_loss(model, inputs, return_outputs=return_outputs, num_items_in_batch=num_items_in_batch)
         loss, outputs = res if isinstance(res, tuple) else (res, None)
 
         reg_loss = 0
@@ -176,8 +176,8 @@ class FLSFTTrainer(SFTTrainer):
                 # Pruning regularization on ranks r_prune_start:r
                 A_part = A[r_prune_start:, :]
                 B_part = B[:, r_prune_start:]
-                # Penalty: lambda * ||B_part||_F * ||A_part||_F
-                reg_loss += torch.norm(A_part, p='fro') * torch.norm(B_part, p='fro')
+                # Penalty: lambda * ||B_part @ A_part||_F  (norm of the actual output contribution)
+                reg_loss += torch.norm(B_part @ A_part, p='fro')
 
         total_loss = loss + self.het_lambda * reg_loss
 
@@ -190,10 +190,23 @@ class FLSFTTrainer(SFTTrainer):
         super().create_scheduler(num_training_steps=total, optimizer=optimizer)
 
     def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
-        # Intentionally skip model-weight loading.
-        # The caller loaded the correct aggregated adapter before train().
-        print(f"  [FLSFTTrainer] Skipping model-weight load from checkpoint "
-              f"(adapter already loaded). Optimizer/scheduler will still resume.")
+        """
+        Skip model-weight loading (correct adapter already loaded by FL loop).
+        Restores RNG state for reproducibility. Optimizer and scheduler are
+        loaded separately by Trainer._inner_training_loop via
+        _load_optimizer_and_scheduler — this override does NOT affect them.
+        """
+        print(f"  [FLSFTTrainer] Skipping model weights from checkpoint "
+              f"(adapter already loaded). Restoring RNG state only.")
+        rng_file = os.path.join(resume_from_checkpoint, "rng_state.pth")
+        if os.path.isfile(rng_file):
+            try:
+                rng = torch.load(rng_file, map_location="cpu", weights_only=False)
+                torch.set_rng_state(rng["cpu"])
+                if "cuda" in rng and torch.cuda.is_available():
+                    torch.cuda.set_rng_state_all(rng["cuda"])
+            except Exception as e:
+                print(f"  [FLSFTTrainer] Warning: RNG state restore failed: {e}")
 
 
 # ── FlexLoRA helpers ───────────────────────────────────────────────────────────
@@ -267,24 +280,10 @@ def project_and_load_adapter(global_adapter_dir: str, model, local_rank: int):
         B_g = global_sd[b_key].float().to(device)   # [out, global_rank]
         delta_W = B_g @ A_g                          # [out, in]
 
-        U, S, Vh = torch.linalg.svd(delta_W, full_matrices=False)
-        r_actual = min(local_rank, S.shape[0])
-        sqrt_S = S[:r_actual].clamp(min=0.0).sqrt()
-
         orig_dtype = global_sd[a_key].dtype
-        A_r = (Vh[:r_actual, :] * sqrt_S.unsqueeze(1)).contiguous().cpu()
-        B_r = (U[:, :r_actual]  * sqrt_S.unsqueeze(0)).contiguous().cpu()
-
-        if r_actual < local_rank:
-            A_full = torch.zeros(local_rank, delta_W.shape[1], dtype=A_r.dtype)
-            B_full = torch.zeros(delta_W.shape[0], local_rank, dtype=B_r.dtype)
-            A_full[:r_actual, :] = A_r
-            B_full[:, :r_actual] = B_r
-            projected[a_key] = A_full.to(orig_dtype)
-            projected[b_key] = B_full.to(orig_dtype)
-        else:
-            projected[a_key] = A_r.to(orig_dtype)
-            projected[b_key] = B_r.to(orig_dtype)
+        A_l, B_l = _svd_to_rank(delta_W, local_rank, orig_dtype)
+        projected[a_key] = A_l.contiguous()
+        projected[b_key] = B_l.contiguous()
 
     incompatible = set_peft_model_state_dict(model, projected)
     _warn_incompatible(incompatible)
@@ -318,8 +317,16 @@ def truncate_and_load_adapter(global_adapter_dir: str, model, local_rank: int):
     truncated = {}
     for k, v in global_sd.items():
         if ".lora_A.weight" in k:
+            if v.shape[0] < local_rank:
+                raise ValueError(
+                    f"Cannot truncate {k}: stored rank {v.shape[0]} < local_rank {local_rank}"
+                )
             truncated[k] = v[:local_rank, :]   # [r_max, in] → [r_k, in]
         elif ".lora_B.weight" in k:
+            if v.shape[1] < local_rank:
+                raise ValueError(
+                    f"Cannot truncate {k}: stored rank {v.shape[1]} < local_rank {local_rank}"
+                )
             truncated[k] = v[:, :local_rank]   # [out, r_max] → [out, r_k]
         else:
             truncated[k] = v
@@ -333,8 +340,11 @@ def _warn_incompatible(result):
     if result is None:
         return
     unexpected = getattr(result, "unexpected_keys", [])
+    missing   = getattr(result, "missing_keys",    [])
     if unexpected:
         print(f"  Warning: unexpected adapter keys: {unexpected[:3]}{'…' if len(unexpected) > 3 else ''}")
+    if missing:
+        print(f"  Warning: missing adapter keys: {missing[:3]}{'…' if len(missing) > 3 else ''}")
 
 
 # ── main ───────────────────────────────────────────────────────────────────────
