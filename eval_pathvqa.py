@@ -26,6 +26,7 @@ import re
 import warnings
 from collections import Counter
 from pathlib import Path
+from typing import Iterable
 
 import torch
 from datasets import load_dataset
@@ -74,6 +75,12 @@ def _extract_answer(raw: str) -> str:
         if line:
             return line
     return raw.strip()
+
+
+def _batched(items: list, batch_size: int) -> Iterable[list]:
+    """Yield fixed-size chunks from a list."""
+    for start in range(0, len(items), batch_size):
+        yield items[start:start + batch_size]
 
 
 # ── dataset ───────────────────────────────────────────────────────────────────
@@ -157,59 +164,163 @@ def _yn_logit_score(model, tokenizer, inputs) -> str:
     return "yes" if logits[yes_id].item() >= logits[no_id].item() else "no"
 
 
+def _prepare_batch(tokenizer, batch_samples):
+    images, texts = [], []
+    for sample in batch_samples:
+        is_yn = _is_yes_no(sample["answer"])
+        img, question = build_prompt(sample, yn_question=is_yn)
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image"},
+                    {"type": "text", "text": question},
+                ],
+            }
+        ]
+        texts.append(
+            tokenizer.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+            )
+        )
+        images.append(img)
+
+    return tokenizer(
+        images,
+        texts,
+        add_special_tokens=False,
+        padding=True,
+        return_tensors="pt",
+    )
+
+
+def _run_yn_batch(model, tokenizer, batch_samples):
+    inputs = _prepare_batch(tokenizer, batch_samples).to(model.device)
+    _tok = getattr(tokenizer, "tokenizer", tokenizer)
+    yes_ids = _tok.encode("yes", add_special_tokens=False)
+    no_ids = _tok.encode("no", add_special_tokens=False)
+    if not yes_ids or not no_ids:
+        return [""] * len(batch_samples)
+
+    gen_out = model.generate(
+        **inputs,
+        max_new_tokens=1,
+        do_sample=False,
+        return_dict_in_generate=True,
+        output_scores=True,
+        use_cache=True,
+    )
+    logits = gen_out.scores[0]
+    yes_id, no_id = yes_ids[0], no_ids[0]
+    return [
+        "yes" if row[yes_id].item() >= row[no_id].item() else "no"
+        for row in logits
+    ]
+
+
+def _run_open_batch(model, tokenizer, batch_samples, max_new_tokens: int):
+    inputs = _prepare_batch(tokenizer, batch_samples).to(model.device)
+    output_ids = model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        use_cache=True,
+    )
+    new_ids = output_ids[:, inputs["input_ids"].shape[-1]:]
+    _tok = getattr(tokenizer, "tokenizer", tokenizer)
+    raw_outputs = _tok.batch_decode(new_ids, skip_special_tokens=True)
+    return [_extract_answer(raw) for raw in raw_outputs]
+
+
+def _run_buckets(model, tokenizer, bucket, batch_size: int, desc: str, batch_fn):
+    if not bucket:
+        return {}
+
+    results = {}
+    current_bs = min(batch_size, len(bucket))
+    cursor = 0
+
+    with tqdm(total=len(bucket), desc=desc) as pbar:
+        while cursor < len(bucket):
+            batch = bucket[cursor:cursor + current_bs]
+            try:
+                preds = batch_fn([sample for _, sample in batch])
+                for (sample_idx, _), pred in zip(batch, preds):
+                    results[sample_idx] = pred
+                cursor += len(batch)
+                pbar.update(len(batch))
+            except RuntimeError as e:
+                if "out of memory" not in str(e).lower() or current_bs == 1:
+                    if current_bs == 1:
+                        sample_idx, _ = batch[0]
+                        print(f"  Warning: inference failed for sample {sample_idx} — {e}")
+                        results[sample_idx] = ""
+                        cursor += 1
+                        pbar.update(1)
+                        continue
+                    current_bs = 1
+                    print(f"  Batch failed in {desc}; falling back to per-sample mode — {e}")
+                    continue
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                current_bs = max(1, current_bs // 2)
+                print(f"  OOM in {desc}; retrying with batch_size={current_bs}")
+            except Exception as e:
+                if current_bs == 1:
+                    sample_idx, _ = batch[0]
+                    print(f"  Warning: inference failed for sample {sample_idx} — {e}")
+                    results[sample_idx] = ""
+                    cursor += 1
+                    pbar.update(1)
+                    continue
+                current_bs = 1
+                print(f"  Batch failed in {desc}; falling back to per-sample mode — {e}")
+
+    return results
+
+
 @torch.inference_mode()
-def run_inference(model, tokenizer, samples, max_new_tokens: int = 32) -> list[str]:
+def run_inference(
+    model,
+    tokenizer,
+    samples,
+    max_new_tokens: int = 32,
+    batch_size: int = 8,
+    yn_batch_size: int | None = None,
+) -> list[str]:
     """
     Two-track inference:
     - Yes/No questions : logit-based (P(yes) vs P(no) at first token)
     - Open-ended       : free generation with format-guiding prompt
     """
     FastVisionModel.for_inference(model)
-    predictions = []
+    yn_batch_size = yn_batch_size or max(batch_size, batch_size * 2)
+    indexed_samples = list(enumerate(samples))
+    yn_bucket = [(idx, sample) for idx, sample in indexed_samples if _is_yes_no(sample["answer"])]
+    open_bucket = [(idx, sample) for idx, sample in indexed_samples if not _is_yes_no(sample["answer"])]
 
-    for sample in tqdm(samples, desc="Inference"):
-        is_yn = _is_yes_no(sample["answer"])
-        img, question = build_prompt(sample, yn_question=is_yn)
-        try:
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image"},
-                        {"type": "text", "text": question},
-                    ],
-                }
-            ]
-            input_text = tokenizer.apply_chat_template(
-                messages,
-                add_generation_prompt=True,
-            )
-            inputs = tokenizer(
-                img,
-                input_text,
-                add_special_tokens=False,
-                return_tensors="pt",
-            ).to(model.device)
+    predictions = [""] * len(samples)
 
-            if is_yn:
-                # Logit-based: no generation needed, just one forward pass
-                pred = _yn_logit_score(model, tokenizer, inputs)
-            else:
-                output_ids = model.generate(
-                    **inputs,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=False,
-                    use_cache=True,
-                )
-                new_ids = output_ids[0][inputs["input_ids"].shape[-1]:]
-                raw = tokenizer.decode(new_ids, skip_special_tokens=True)
-                pred = _extract_answer(raw)
+    yn_results = _run_buckets(
+        model,
+        tokenizer,
+        yn_bucket,
+        batch_size=yn_batch_size,
+        desc="Inference (yes/no)",
+        batch_fn=lambda batch: _run_yn_batch(model, tokenizer, batch),
+    )
+    open_results = _run_buckets(
+        model,
+        tokenizer,
+        open_bucket,
+        batch_size=batch_size,
+        desc="Inference (open)",
+        batch_fn=lambda batch: _run_open_batch(model, tokenizer, batch, max_new_tokens),
+    )
 
-            predictions.append(pred)
-        except Exception as e:
-            print(f"  Warning: inference failed for sample — {e}")
-            predictions.append("")
-
+    for idx, pred in {**yn_results, **open_results}.items():
+        predictions[idx] = pred
     return predictions
 
 
@@ -267,6 +378,10 @@ def main():
     parser.add_argument("--n_samples",     type=str, default=None,
                         help="Number of samples (int) or 'none' to use all")
     parser.add_argument("--max_new_tokens",type=int, default=32)
+    parser.add_argument("--batch_size",     type=int, default=32,
+                        help="Batch size for open-ended generation")
+    parser.add_argument("--yn_batch_size",  type=int, default=None,
+                        help="Batch size for yes/no scoring (default: max(batch_size, 2*batch_size))")
     parser.add_argument("--output_json",   type=str, default=None,
                         help="Where to save JSON results (default: auto-named next to peft_path)")
     parser.add_argument("--load_in_4bit",  action="store_true")
@@ -331,7 +446,14 @@ def main():
     samples = load_eval_samples(n_samples)
 
     # ── inference ──
-    predictions = run_inference(model, tokenizer, samples, args.max_new_tokens)
+    predictions = run_inference(
+        model,
+        tokenizer,
+        samples,
+        max_new_tokens=args.max_new_tokens,
+        batch_size=args.batch_size,
+        yn_batch_size=args.yn_batch_size,
+    )
 
     # ── metrics ──
     summary, per_sample = compute_metrics(samples, predictions)
