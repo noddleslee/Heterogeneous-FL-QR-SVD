@@ -25,8 +25,8 @@ Comparison of fixed ranks vs. heterogeneous algorithms after algorithmic fixes f
 
 | Configuration | Round 9 Overall Acc | Peak Overall Acc | Peak Round |
 | :--- | :---: | :---: | :---: |
-| **Fixed Rank 64** | **0.6280** | **0.6300** | 8 |
-| **Fixed Rank 16** | 0.5900 | 0.6040 | 6 |
+| **Fixed Rank 64** | **0.6056** | **0.6077** | 8 |
+| **Fixed Rank 16** | 0.5730 | 0.5776 | 7 |
 | **FlexLoRA (Hetero 4-64)** | **0.5720** | **0.5740** | 7 |
 | **Fixed Rank 4** | 0.5520 | 0.5540 | 8 |
 | **HetLoRA (Self-Pruning)** | 0.5220* | 0.5280 | 2 |
@@ -38,7 +38,7 @@ Comparison of fixed ranks vs. heterogeneous algorithms after algorithmic fixes f
 ## Key Findings & Algorithmic Impact
 
 1. **Successful "Rank 64" Ceiling Expansion**: 
-   The addition of a high-rank baseline (Rank 64) demonstrated that PathVQA performance scales significantly with capacity, reaching a record **0.6300 accuracy**, surpassing the previous Rank 16 ceiling.
+   The addition of a high-rank baseline (Rank 64) demonstrated that PathVQA performance scales significantly with capacity, reaching a record **0.6077 accuracy**, surpassing the previous Rank 16 ceiling.
 
 2. **FlexLoRA Superiority over Low-Rank**:
    After implementing **Delta-based weight aggregation**, FlexLoRA (which includes Rank 4 clients) successfully avoided rank collapse. It reached a peak of **0.5740**, consistently outperforming the **Fixed Rank 4** baseline. This confirms that a high-rank global model can successfully aggregate and leverage updates from low-resource clients without being bottlenecked by them.

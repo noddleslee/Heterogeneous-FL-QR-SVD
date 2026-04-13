@@ -1,4 +1,4 @@
-import pandas as pd
+import csv
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -14,8 +14,20 @@ def plot_results():
         'figure.titlesize': 22
     })
     
-    # Load data
-    df = pd.read_csv('summary_results.csv')
+    # Load data using csv module
+    data = []
+    csv_path = 'summary_results.csv'
+    try:
+        with open(csv_path, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Convert types
+                row['round'] = int(row['round'])
+                row['overall_acc'] = float(row['overall_acc']) if row['overall_acc'] else 0.0
+                data.append(row)
+    except Exception as e:
+        print(f"Error reading {csv_path}: {e}")
+        return
     
     # Map config names to more readable ones
     name_map = {
@@ -25,11 +37,6 @@ def plot_results():
         'fed_sim_rank64': 'Fixed Rank 64 (Ceiling)',
         'fed_sim_hetlora': 'HetLoRA (Self-Pruning Ranks)'
     }
-    df['display_name'] = df['config'].map(name_map)
-    
-    # Filter out HetLoRA rounds after 3 for this plot as they were broken/stale
-    # Actually, for the report we want to see the new HetLoRA Round 2 success
-    # But for a clean trend line, we might just plot what we have.
     
     # Create the figure
     plt.figure(figsize=(12, 7.5))
@@ -52,14 +59,18 @@ def plot_results():
     }
 
     for config in ['fed_sim_rank4', 'fed_sim_rank16', 'fed_sim_rank64', 'fed_sim_flexlora', 'fed_sim_hetlora']:
-        subset = df[df['config'] == config].sort_values('round')
+        # Filter and sort by round
+        subset = [d for d in data if d['config'] == config]
+        subset.sort(key=lambda x: x['round'])
         
-        # For HetLoRA, only plot up to round 3 for the 'fresh' part if desired, 
-        # or just plot everything but label it correctly.
-        # User saw the summary which included old rounds, but we should highlight the fresh parts.
+        if not subset:
+            continue
+            
+        rounds = [d['round'] for d in subset]
+        accs = [d['overall_acc'] for d in subset]
         
         # Plotting
-        plt.plot(subset['round'], subset['overall_acc'], 
+        plt.plot(rounds, accs, 
                  label=name_map[config], 
                  marker=markers[config], 
                  markersize=10, 
@@ -80,8 +91,9 @@ def plot_results():
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=True, fontsize=12)
     
     # Add annotations for key findings
+    # Adjust annotation positions based on new data
     plt.annotate('Rank 64 Ceiling (Best Performance)', 
-                 xy=(8, 0.630), xytext=(5, 0.64),
+                 xy=(8, 0.607), xytext=(5, 0.64),
                  arrowprops=dict(facecolor='black', shrink=0.05, width=1, headwidth=8),
                  fontsize=12, fontweight='bold')
                  

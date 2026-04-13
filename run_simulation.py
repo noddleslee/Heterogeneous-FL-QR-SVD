@@ -245,8 +245,7 @@ export UNSLOTH_RETURN_LOGITS=1
     --base_model {base_model} \\
     --peft_path {os.path.abspath(global_dir)} \\
     --output_json {os.path.abspath(result_json)} \\
-    --n_samples 500
-""")
+""") # Add --n_samples 500 if you want to evaluate on 500 samples
     subprocess.run(["sbatch", script])
 
 

@@ -78,13 +78,17 @@ def _extract_answer(raw: str) -> str:
 
 # ── dataset ───────────────────────────────────────────────────────────────────
 
-def load_eval_samples(n_samples: int, seed: int = 42):
+def load_eval_samples(n_samples: int = None, seed: int = 42):
     """
-    Load n_samples from the PathVQA validation split, balanced between
-    yes/no and open-ended questions.
+    Load n_samples from the PathVQA test split, balanced between
+    yes/no and open-ended questions. If n_samples is None, use all samples.
     """
-    print("Loading PathVQA validation split …")
-    ds = load_dataset("flaviagiammarino/path-vqa", split="validation")
+    print("Loading PathVQA test split …")
+    ds = load_dataset("flaviagiammarino/path-vqa", split="test")
+
+    if n_samples is None:
+        print(f"  Using all {len(ds)} samples.")
+        return ds
 
     yn_indices   = [i for i in range(len(ds)) if _is_yes_no(ds[i]["answer"])]
     open_indices = [i for i in range(len(ds)) if not _is_yes_no(ds[i]["answer"])]
@@ -260,7 +264,8 @@ def main():
     parser.add_argument("--base_model",    type=str, default="Qwen/Qwen3.5-0.8B")
     parser.add_argument("--peft_path",     type=str, default=None,
                         help="Path to LoRA adapter directory (None = base model only)")
-    parser.add_argument("--n_samples",     type=int, default=500)
+    parser.add_argument("--n_samples",     type=str, default=None,
+                        help="Number of samples (int) or 'none' to use all")
     parser.add_argument("--max_new_tokens",type=int, default=32)
     parser.add_argument("--output_json",   type=str, default=None,
                         help="Where to save JSON results (default: auto-named next to peft_path)")
@@ -319,7 +324,11 @@ def main():
     model.eval()
 
     # ── load data ──
-    samples = load_eval_samples(args.n_samples)
+    if args.n_samples is None or args.n_samples.lower() == "none":
+        n_samples = None
+    else:
+        n_samples = int(args.n_samples)
+    samples = load_eval_samples(n_samples)
 
     # ── inference ──
     predictions = run_inference(model, tokenizer, samples, args.max_new_tokens)
