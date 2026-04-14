@@ -1,6 +1,5 @@
 import csv
 import matplotlib.pyplot as plt
-import numpy as np
 
 def plot_results():
     # Setting a professional style with matplotlib defaults
@@ -31,11 +30,11 @@ def plot_results():
     
     # Map config names to more readable ones
     name_map = {
-        'fed_sim_flexlora': 'FlexLoRA (Heterogeneous Rank 4-64)',
-        'fed_sim_rank4': 'Fixed Rank 4 (Baseline)',
-        'fed_sim_rank16': 'Fixed Rank 16 (Baseline)',
-        'fed_sim_rank64': 'Fixed Rank 64 (Ceiling)',
-        'fed_sim_hetlora': 'HetLoRA (Self-Pruning Ranks)'
+        'fed_sim_flexlora': 'FlexLoRA',
+        'fed_sim_rank4': 'Fixed Rank 4',
+        'fed_sim_rank16': 'Fixed Rank 16',
+        'fed_sim_rank64': 'Fixed Rank 64',
+        'fed_sim_hetlora': 'HetLoRA'
     }
     
     # Create the figure
@@ -58,6 +57,7 @@ def plot_results():
         'fed_sim_hetlora': 'v'
     }
 
+    plotted = []
     for config in ['fed_sim_rank4', 'fed_sim_rank16', 'fed_sim_rank64', 'fed_sim_flexlora', 'fed_sim_hetlora']:
         # Filter and sort by round
         subset = [d for d in data if d['config'] == config]
@@ -77,30 +77,23 @@ def plot_results():
                  linewidth=3, 
                  color=colors[config],
                  alpha=0.9)
+        plotted.append((config, rounds, accs))
 
-    plt.title('Federated PathVQA Accuracy Comparison\n(Impact of Heterogeneous Rank & Algorithmic Fixes)', 
+    plt.title('Federated PathVQA Accuracy Comparison', 
               fontsize=20, pad=20, fontweight='bold')
     plt.xlabel('Communication Round', fontsize=16)
     plt.ylabel('Overall Accuracy', fontsize=16)
     
     plt.xticks(range(10))
-    plt.ylim(0.44, 0.65)
+    if plotted:
+        all_accs = [acc for _, _, accs in plotted for acc in accs]
+        ymin = max(0.0, min(all_accs) - 0.02)
+        ymax = min(1.0, max(all_accs) + 0.03)
+        plt.ylim(ymin, ymax)
     
     # Formatting grid and legend
     plt.grid(True, linestyle='--', alpha=0.6)
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=True, fontsize=12)
-    
-    # Add annotations for key findings
-    # Adjust annotation positions based on new data
-    plt.annotate('Rank 64 Ceiling (Best Performance)', 
-                 xy=(8, 0.607), xytext=(5, 0.64),
-                 arrowprops=dict(facecolor='black', shrink=0.05, width=1, headwidth=8),
-                 fontsize=12, fontweight='bold')
-                 
-    plt.annotate('FlexLoRA (Surpassing Rank 4)', 
-                 xy=(7, 0.574), xytext=(3, 0.59),
-                 arrowprops=dict(facecolor='#27ae60', shrink=0.05, width=1, headwidth=8),
-                 fontsize=12, color='#1e8449', fontweight='bold')
 
     plt.tight_layout()
     plt.savefig('federated_accuracy_comparison.png', dpi=300)
