@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -A NAISS2025-22-1535 -p alvis
-#SBATCH -N 1 --gpus-per-node=A40:2
+#SBATCH -N 1 --gpus-per-node=A100:2
 #SBATCH --job-name=fed_rank4
 #SBATCH --tasks-per-node=1
 #SBATCH --time=24:00:00

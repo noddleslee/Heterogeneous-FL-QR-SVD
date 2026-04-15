@@ -402,15 +402,30 @@ def run_round(
     return True
 
 
+def _pick_gpu_type(fallback: str = "A40") -> str:
+    """Call pick_gpu.py and return the GPU type with the most free slots."""
+    try:
+        gpu = subprocess.check_output(
+            [PYTHON_EXE[0], os.path.join(BASE_DIR, "pick_gpu.py")],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+        return gpu if gpu in ("A100", "A40") else fallback
+    except Exception:
+        return fallback
+
+
 def _submit_eval(round_idx, output_dir, base_model, global_dir):
     print(f"Submitting async evaluation job for round {round_idx} …")
     script = os.path.join(output_dir, f"round_{round_idx}", "submit_eval.sh")
     result_json = os.path.join(output_dir, f"round_{round_idx}", "eval_results.json")
 
+    gpu_type = _pick_gpu_type()
+    print(f"  Eval GPU: {gpu_type}:1")
+
     with open(script, "w") as f:
         f.write(f"""#!/bin/bash
 #SBATCH -A NAISS2025-22-1535 -p alvis
-#SBATCH -N 1 --gpus-per-node=A40:1
+#SBATCH -N 1 --gpus-per-node={gpu_type}:1
 #SBATCH --job-name=eval_rnd{round_idx}
 #SBATCH --tasks-per-node=1
 #SBATCH --time=02:00:00
