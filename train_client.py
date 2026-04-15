@@ -29,7 +29,7 @@ When --flexlora is passed, the global adapter (at --global_rank) is projected
 down to the client's --rank via truncated SVD before local training begins.
 """
 
-import argparse, json, os, shutil, warnings
+import argparse, json, os, shutil, time, warnings
 from pathlib import Path
 
 import torch
@@ -347,6 +347,211 @@ def _warn_incompatible(result):
         print(f"  Warning: missing adapter keys: {missing[:3]}{'…' if len(missing) > 3 else ''}")
 
 
+# ── persistent worker helpers ──────────────────────────────────────────────────
+
+def _write_signal(path: str, data: dict):
+    """Atomically write a JSON signal file."""
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
+
+
+def _wait_for_signal(path: str, poll: float = 0.5) -> dict:
+    """Block until a signal file appears, then return its JSON content."""
+    while not os.path.exists(path):
+        time.sleep(poll)
+    with open(path) as f:
+        return json.load(f)
+
+
+def _persistent_worker(args):
+    """
+    Persistent worker mode: load the base model ONCE, then handle every FL round
+    via file-based signals instead of relaunching the process each round.
+
+    Signal protocol
+    ---------------
+    Orchestrator writes  signal_dir/start_r{R}_c{C}.json  → worker starts round R
+    Worker writes        signal_dir/done_r{R}_c{C}.json   → round R complete
+    Worker writes        signal_dir/ready_c{C}.json        → model loaded, ready
+
+    This eliminates the dominant GPU-idle source: the ~2-4 min model-loading
+    overhead that occurs at the start of every process invocation in the default
+    (non-persistent) mode.
+    """
+    signal_dir = args.signal_dir
+    os.makedirs(signal_dir, exist_ok=True)
+    stateful = args.max_steps > 0
+
+    client_ckpt_dir = os.path.join(args.output_dir, f"client_{args.client_id}_ckpt")
+    os.makedirs(client_ckpt_dir, exist_ok=True)
+
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":8192:8"
+    os.environ["UNSLOTH_RETURN_LOGITS"]   = "1"
+
+    # ── Load data ONCE ──
+    train_ds = load_split("train",      args.client_id, args.num_clients)
+    val_ds   = load_split("validation", args.client_id, args.num_clients)
+
+    # ── Load model ONCE ──
+    print(f"\n[Client {args.client_id}] Loading model: {args.base_model}  "
+          f"(rank={args.rank})")
+    model, tokenizer = FastVisionModel.from_pretrained(
+        model_name=args.base_model,
+        load_in_4bit=False,
+        use_gradient_checkpointing="unsloth",
+    )
+    model = FastVisionModel.get_peft_model(
+        model,
+        finetune_vision_layers=True,
+        finetune_language_layers=True,
+        finetune_attention_modules=True,
+        finetune_mlp_modules=True,
+        r=args.rank,
+        lora_alpha=args.rank * 2,
+        lora_dropout=0,
+        bias="none",
+        random_state=3407,
+    )
+    model.print_trainable_parameters()
+
+    # Signal that the model is loaded and we're ready for the first round
+    _write_signal(os.path.join(signal_dir, f"ready_c{args.client_id}.json"),
+                  {"status": "ready"})
+    print(f"[Client {args.client_id}] Ready. Waiting for round signals.")
+
+    for round_idx in range(args.total_rounds):
+        # ── Wait for start signal ──
+        start_file = os.path.join(signal_dir, f"start_r{round_idx}_c{args.client_id}.json")
+        print(f"[Client {args.client_id}] Waiting for round {round_idx} start signal …")
+        signal_data = _wait_for_signal(start_file)
+        global_model_path = signal_data.get("global_model_path")
+
+        client_output_dir = os.path.join(
+            args.output_dir, f"round_{round_idx}", f"client_{args.client_id}"
+        )
+        os.makedirs(client_output_dir, exist_ok=True)
+
+        # ── Load global adapter (fast — just tensor ops, no disk I/O for model) ──
+        if global_model_path:
+            print(f"[Client {args.client_id}] Loading global adapter from {global_model_path}")
+            if args.flexlora and args.rank < args.global_rank:
+                project_and_load_adapter(global_model_path, model, args.rank)
+            else:
+                from peft import load_peft_weights, set_peft_model_state_dict
+                weights = load_peft_weights(global_model_path)
+                set_peft_model_state_dict(model, weights)
+                print(f"  Loaded global adapter directly (rank={args.rank})")
+
+        # ── Build trainer for this round ──
+        if stateful:
+            abs_max_steps = (round_idx + 1) * args.max_steps
+            sft_args = SFTConfig(
+                output_dir=client_ckpt_dir,
+                per_device_train_batch_size=16,
+                gradient_accumulation_steps=1,
+                per_device_eval_batch_size=8,
+                eval_strategy="no",
+                save_strategy="steps",
+                save_steps=args.max_steps,
+                save_total_limit=1,
+                logging_steps=10,
+                learning_rate=2e-4,
+                optim="adamw_8bit",
+                weight_decay=0.001,
+                lr_scheduler_type="linear",
+                warmup_ratio=0.03,
+                seed=3407 + args.client_id,
+                report_to="none",
+                max_length=512,
+                max_steps=abs_max_steps,
+                dataset_kwargs={"skip_prepare_dataset": True},
+                dataloader_num_workers=4,
+                dataloader_pin_memory=True,
+                dataloader_prefetch_factor=4,
+                remove_unused_columns=False,
+            )
+            trainer = FLSFTTrainer(
+                total_rounds=args.total_rounds,
+                steps_per_round=args.max_steps,
+                hetlora=False,
+                het_lambda=0.0,
+                het_gamma=0.5,
+                rank=args.rank,
+                model=model,
+                tokenizer=tokenizer,
+                data_collator=UnslothVisionDataCollator(model, tokenizer),
+                train_dataset=train_ds,
+                eval_dataset=val_ds,
+                args=sft_args,
+            )
+            resume_ckpt = _find_latest_checkpoint(client_ckpt_dir) if round_idx > 0 else None
+            if resume_ckpt:
+                print(f"[Client {args.client_id}] Resuming trainer state from {resume_ckpt}")
+        else:
+            sft_args = SFTConfig(
+                output_dir=client_output_dir,
+                per_device_train_batch_size=16,
+                gradient_accumulation_steps=1,
+                per_device_eval_batch_size=8,
+                num_train_epochs=args.epochs,
+                eval_strategy="no",
+                save_strategy="no",
+                logging_steps=10,
+                learning_rate=2e-4,
+                optim="adamw_8bit",
+                weight_decay=0.001,
+                lr_scheduler_type="linear",
+                warmup_ratio=0.03,
+                seed=3407 + args.client_id,
+                report_to="none",
+                max_length=512,
+                max_steps=-1,
+                dataset_kwargs={"skip_prepare_dataset": True},
+                dataloader_num_workers=4,
+                dataloader_pin_memory=True,
+                dataloader_prefetch_factor=4,
+                remove_unused_columns=False,
+            )
+            trainer = FLSFTTrainer(
+                total_rounds=args.total_rounds,
+                steps_per_round=0,
+                hetlora=False,
+                het_lambda=0.0,
+                het_gamma=0.5,
+                rank=args.rank,
+                model=model,
+                tokenizer=tokenizer,
+                data_collator=UnslothVisionDataCollator(model, tokenizer),
+                train_dataset=train_ds,
+                eval_dataset=val_ds,
+                args=sft_args,
+            )
+            resume_ckpt = None
+
+        # ── Train ──
+        print(f"\n[Client {args.client_id}] Starting round {round_idx} training …")
+        trainer.train(resume_from_checkpoint=resume_ckpt)
+
+        # Free optimizer / dataloader memory before the next round
+        del trainer
+        torch.cuda.empty_cache()
+
+        # ── Save adapter ──
+        model.save_pretrained(client_output_dir)
+        print(f"[Client {args.client_id}] Adapter (rank={args.rank}) saved to {client_output_dir}")
+
+        # ── Signal done ──
+        _write_signal(
+            os.path.join(signal_dir, f"done_r{round_idx}_c{args.client_id}.json"),
+            {"status": "ok", "rank": args.rank},
+        )
+        print(f"[Client {args.client_id}] Round {round_idx} complete.")
+
+    print(f"[Client {args.client_id}] All {args.total_rounds} rounds complete. Exiting.")
+
+
 # ── main ───────────────────────────────────────────────────────────────────────
 
 def main():
@@ -377,11 +582,26 @@ def main():
     parser.add_argument("--hetlora",     action="store_true")
     parser.add_argument("--het_lambda",  type=float, default=0.01)
     parser.add_argument("--het_gamma",   type=float, default=0.5)
+    # Persistent worker mode
+    parser.add_argument("--persistent",  action="store_true",
+                        help="Keep process alive across all FL rounds; requires --signal_dir. "
+                             "Eliminates repeated model-loading overhead between rounds.")
+    parser.add_argument("--signal_dir",  type=str, default=None,
+                        help="Directory for round start/done signal files (persistent mode).")
 
     args = parser.parse_args()
 
     if args.global_rank is None:
         args.global_rank = args.rank
+
+    if args.persistent:
+        if not args.signal_dir:
+            raise ValueError("--signal_dir is required when --persistent is set")
+        if args.hetlora:
+            raise ValueError("--hetlora is not supported in --persistent mode; "
+                             "run without --persistent for HetLoRA experiments")
+        _persistent_worker(args)
+        return
 
     stateful = args.max_steps > 0
 
@@ -493,6 +713,7 @@ def main():
             dataset_kwargs={"skip_prepare_dataset": True},
             dataloader_num_workers=4,
             dataloader_pin_memory=True,
+            dataloader_prefetch_factor=4,
             remove_unused_columns=False,
         )
         trainer = FLSFTTrainer(
@@ -539,6 +760,7 @@ def main():
             dataset_kwargs={"skip_prepare_dataset": True},
             dataloader_num_workers=4,
             dataloader_pin_memory=True,
+            dataloader_prefetch_factor=4,
             remove_unused_columns=False,
         )
         trainer = SFTTrainer(
