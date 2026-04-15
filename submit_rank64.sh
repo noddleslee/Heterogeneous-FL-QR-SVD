@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -A NAISS2025-22-1535 -p alvis
-#SBATCH -N 1 --gpus-per-node=A40:4
+#SBATCH -N 1 --gpus-per-node=A40:2
 #SBATCH --job-name=fed_rank64
 #SBATCH --tasks-per-node=1
 #SBATCH --time=24:00:00
@@ -18,7 +18,7 @@ SIM_DIR=/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora
 $PYTHON $SIM_DIR/run_simulation.py \
     --num_rounds 10 \
     --num_clients 4 \
-    --num_gpus 4 \
+    --num_gpus 2 \
     --output_dir results/fed_sim_rank64 \
     --rank 64 \
     --base_model Qwen/Qwen3.5-0.8B \
