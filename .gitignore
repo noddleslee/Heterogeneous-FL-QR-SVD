@@ -3,3 +3,6 @@ unsloth_compiled_cache
 *.out
 */__pycache__/
 *.pyc
+centralized_training/1epoch_*
+centralized_training/2epoch_*
+centralized_training/results/*

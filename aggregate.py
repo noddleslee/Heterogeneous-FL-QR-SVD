@@ -1,14 +1,21 @@
 """
 Aggregation scripts for Federated Learning on PathVQA.
 
-Supports two modes:
-  - fedavg   : simple FedAvg (all clients must have the same LoRA rank)
-  - flexlora : FlexLoRA (NeurIPS 2024) — handles heterogeneous client ranks
-               via full-matrix averaging + SVD re-decomposition
+Supported modes
+---------------
+  fedavg   : simple FedAvg (all clients must share the same LoRA rank)
+  flexlora : FlexLoRA (NeurIPS 2024) — heterogeneous ranks via
+             full-matrix averaging + truncated SVD re-decomposition
+  qrsvd    : QR-SVD — same semantics as FlexLoRA but replaces the expensive
+             O(d² r) full-matrix SVD with the O(d·Kr + (Kr)³) QR + mini-SVD
+             trick: factors are stacked side-by-side (never forming [out×in])
+             and compressed with QR before the SVD.  Speed-up ≈ d/(K·r).
+  hetlora  : HetLoRA (EMNLP 2024) — zero-padding + sparsity-weighted average
 """
 
 import argparse
 import json
+import math
 import os
 import shutil
 
@@ -84,6 +91,83 @@ def _svd_to_rank(delta_W: torch.Tensor, rank: int, orig_dtype) -> tuple[torch.Te
         return A_full.to(orig_dtype), B_full.to(orig_dtype)
 
     return A_r.to(orig_dtype), B_r.to(orig_dtype)
+
+
+# ── QR + mini-SVD helper (core of the QR-SVD aggregator) ─────────────────────
+
+def _qr_svd_rank(
+    B_list: list,
+    A_list: list,
+    global_rank: int,
+    orig_dtype,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Rank-global_rank approximation of  Σ_k B_k @ A_k  without ever forming
+    the full [out × in] matrix (the "Method 2" from testgpu.py).
+
+    Mathematical identity
+    ---------------------
+    Let  U_big = hstack(B_k)  ∈ ℝ^{out × Σr_k}
+         V_big = hstack(A_k.T) ∈ ℝ^{in  × Σr_k}
+    Then  U_big @ V_big.T  ≡  Σ_k B_k @ A_k  (no big matrix formed).
+
+    Algorithm
+    ---------
+    1. Stack:  U_big = cat(B_k, dim=1),  V_big = cat(A_k.T, dim=1)
+    2. Thin QR: U_big = Q_U R_U,  V_big = Q_V R_V
+    3. Core:   M = R_U @ R_V.T   [Σr_k × Σr_k] — tiny!
+    4. Mini SVD on M
+    5. Back-project top-global_rank components to the original space
+
+    Complexity
+    ----------
+    Dominant cost: O(out·Σr_k + in·Σr_k + (Σr_k)³) vs. O(out·in·min(out,in))
+    for the naive approach.  Speed-up ≈ max(out,in) / Σr_k.
+
+    Args
+    ----
+    B_list      : list of [out, r_k] float tensors — already weight-scaled
+    A_list      : list of [r_k, in]  float tensors — already weight-scaled
+    global_rank : target rank for the output adapter
+    orig_dtype  : dtype for the returned tensors
+
+    Returns
+    -------
+    A_global : [global_rank, in]   (lora_A.weight)
+    B_global : [out, global_rank]  (lora_B.weight)
+    """
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    B_dev = [b.float().to(device) for b in B_list]
+    A_dev = [a.float().to(device) for a in A_list]
+
+    out_dim = B_dev[0].shape[0]
+    in_dim  = A_dev[0].shape[1]
+
+    U_big = torch.cat(B_dev, dim=1)                       # [out, Σr_k]
+    V_big = torch.cat([a.T for a in A_dev], dim=1)        # [in,  Σr_k]
+
+    # Thin QR — extracts the column spaces of U_big and V_big
+    Q_U, R_U = torch.linalg.qr(U_big, mode="reduced")    # [out, p], [p, Σr_k]
+    Q_V, R_V = torch.linalg.qr(V_big, mode="reduced")    # [in,  p], [p, Σr_k]
+
+    # Core matrix (p × p, p = min(out, Σr_k))
+    M = R_U @ R_V.T                                        # [p, p]
+    U_t, S, Vt_t = torch.linalg.svd(M, full_matrices=False)
+
+    r_actual = min(global_rank, S.shape[0])
+    sqrt_S   = S[:r_actual].clamp(min=0.0).sqrt()
+
+    B_g = (Q_U @ U_t[:, :r_actual] * sqrt_S).cpu()                # [out, r_actual]
+    A_g = (sqrt_S.unsqueeze(1) * (Vt_t[:r_actual] @ Q_V.T)).cpu() # [r_actual, in]
+
+    if r_actual < global_rank:
+        A_full = torch.zeros(global_rank, in_dim)
+        B_full = torch.zeros(out_dim,     global_rank)
+        A_full[:r_actual] = A_g
+        B_full[:, :r_actual] = B_g
+        return A_full.to(orig_dtype), B_full.to(orig_dtype)
+
+    return A_g.to(orig_dtype), B_g.to(orig_dtype)
 
 
 # ── FedAvg ────────────────────────────────────────────────────────────────────
@@ -245,6 +329,142 @@ def aggregate_flexlora(client_dirs, output_dir, global_rank, client_weights=None
             shutil.copy(src, os.path.join(output_dir, fn))
 
     print(f"FlexLoRA aggregation done. Global adapter (rank={global_rank}) saved to {output_dir}")
+
+
+# ── QR-SVD ────────────────────────────────────────────────────────────────────
+
+def aggregate_qrsvd(client_dirs, output_dir, global_rank, client_weights=None, global_model_path=None):
+    """
+    QR-SVD aggregation: same math as FlexLoRA, but replaces every call to
+    _svd_to_rank(ΔW_avg, global_rank) — which operates on the full [out×in]
+    matrix — with the QR + mini-SVD trick from testgpu.py.
+
+    Key idea
+    --------
+    Instead of forming  ΔW_avg = Σ w_k · B_k @ A_k  and then doing SVD on it,
+    we stack the scaled thin factors side-by-side:
+
+        U_big = hstack(√w_k · B_k)    [out, Σr_k]
+        V_big = hstack(√w_k · A_k.T)  [in,  Σr_k]
+        U_big @ V_big.T  ≡  ΔW_avg
+
+    QR compresses U_big and V_big to an Σr_k × Σr_k core matrix M, and the
+    mini-SVD of M gives the top-global_rank factors.  The full [out × in]
+    matrix is never materialised.  Speed-up ≈ max(out, in) / Σr_k.
+
+    Delta-update mode (global_model_path provided)
+    -----------------------------------------------
+    ΔW_new = W_g + Σ_k w_k (B_k @ A_k − W_g→r_k)
+
+    W_g = B_g_ref @ A_g_ref is itself factored, so its rank-r_k projection
+    W_g→r_k = B_g_svd[:, :r_k] @ A_g_svd[:r_k, :] is obtained by truncating
+    the QR-SVD of (B_g_ref, A_g_ref) — again without forming [out × in].
+    All terms are appended to U_big / V_big as additional column blocks.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    state_dicts  = [_load_adapter(d) for d in client_dirs]
+    num_clients  = len(state_dicts)
+    client_ranks = [_infer_rank(sd) for sd in state_dicts]
+    print(f"QR-SVD: {num_clients} clients, ranks={client_ranks}, global_rank={global_rank}")
+
+    if client_weights is None:
+        client_weights = [1.0] * num_clients
+    total_w = sum(client_weights)
+    norm_w  = [w / total_w for w in client_weights]
+
+    pairs = {}
+    for sd in state_dicts:
+        pairs.update(_lora_base_keys(sd))
+    global_sd = {}
+
+    global_ref = None
+    if global_model_path and os.path.exists(global_model_path):
+        global_ref = _load_adapter(global_model_path)
+
+    for bk, keys in sorted(pairs.items()):
+        if "A" not in keys or "B" not in keys:
+            continue
+        a_key, b_key = keys["A"], keys["B"]
+
+        # ── pre-compute QR-SVD of global reference (once per layer) ──────────
+        # Avoids forming W_g = B_g_ref @ A_g_ref ([out × in]) anywhere.
+        # B_g_svd [out, g_r] and A_g_svd [g_r, in] satisfy B_g_svd@A_g_svd ≈ W_g.
+        # Truncating to [:, :r_k] / [:r_k, :] gives the rank-r_k SVD projection.
+        B_g_svd = A_g_svd = None
+        if global_ref is not None and a_key in global_ref and b_key in global_ref:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            B_gref = global_ref[b_key].float().to(device)   # [out, g_r]
+            A_gref = global_ref[a_key].float().to(device)   # [g_r, in]
+            Q_Ug, R_Ug = torch.linalg.qr(B_gref,   mode="reduced")
+            Q_Vg, R_Vg = torch.linalg.qr(A_gref.T, mode="reduced")
+            Mg = R_Ug @ R_Vg.T
+            Utg, Sg, Vttg = torch.linalg.svd(Mg, full_matrices=False)
+            sqrt_Sg  = Sg.clamp(min=0.0).sqrt()
+            B_g_svd  = ((Q_Ug @ Utg) * sqrt_Sg).cpu()                  # [out, g_r]
+            A_g_svd  = (sqrt_Sg.unsqueeze(1) * (Vttg @ Q_Vg.T)).cpu()  # [g_r, in]
+
+        # ── collect weighted factor columns ───────────────────────────────────
+        B_factors: list = []
+        A_factors: list = []
+
+        for w, sd, r_k in zip(norm_w, state_dicts, client_ranks):
+            if a_key not in sd or b_key not in sd:
+                continue
+            sw = math.sqrt(w)
+            # Positive client contribution: sw·B_k @ sw·A_k = w·B_k@A_k
+            B_factors.append(sd[b_key].float() * sw)   # [out, r_k]
+            A_factors.append(sd[a_key].float() * sw)   # [r_k, in]
+
+            if B_g_svd is not None:
+                # Negative projected-global contribution:
+                #   (−sw·B_g_svd[:,:r_k]) @ (sw·A_g_svd[:r_k,:]) = −w·W_g→r_k
+                B_factors.append(-B_g_svd[:, :r_k] * sw)   # [out, r_k]
+                A_factors.append( A_g_svd[:r_k, :] * sw)   # [r_k, in]
+
+        if not B_factors:
+            continue
+
+        # Add W_g itself (scale 1) so the final sum equals W_g + avg(deltas)
+        if B_g_svd is not None:
+            B_factors.append(B_g_svd)   # [out, g_r]
+            A_factors.append(A_g_svd)   # [g_r, in]
+
+        orig_dtype = next(sd[a_key].dtype for sd in state_dicts if a_key in sd)
+        A_g, B_g = _qr_svd_rank(B_factors, A_factors, global_rank, orig_dtype)
+        global_sd[a_key] = A_g
+        global_sd[b_key] = B_g
+
+    # ── average non-lora_A/lora_B keys normally ──
+    lora_keys = {k for p in pairs.values() for k in p.values()}
+    all_other_keys: set = set()
+    for sd in state_dicts:
+        all_other_keys.update(k for k in sd if k not in lora_keys)
+    for key in sorted(all_other_keys):
+        tensors = [sd[key] for sd in state_dicts if key in sd]
+        if len(tensors) == num_clients:
+            try:
+                global_sd[key] = torch.stack(tensors).mean(dim=0)
+            except Exception:
+                global_sd[key] = tensors[0]
+
+    save_file(global_sd, os.path.join(output_dir, "adapter_model.safetensors"))
+
+    cfg_src = os.path.join(client_dirs[0], "adapter_config.json")
+    if os.path.exists(cfg_src):
+        with open(cfg_src) as f:
+            cfg = json.load(f)
+        cfg["r"]          = global_rank
+        cfg["lora_alpha"] = global_rank * 2
+        with open(os.path.join(output_dir, "adapter_config.json"), "w") as f:
+            json.dump(cfg, f, indent=2)
+
+    for fn in ["tokenizer_config.json", "special_tokens_map.json", "tokenizer.json"]:
+        src = os.path.join(client_dirs[0], fn)
+        if os.path.exists(src):
+            shutil.copy(src, os.path.join(output_dir, fn))
+
+    print(f"QR-SVD aggregation done. Global adapter (rank={global_rank}) saved to {output_dir}")
 
 
 # ── HetLoRA ───────────────────────────────────────────────────────────────────
@@ -476,7 +696,7 @@ def main():
     parser.add_argument("--output_dir", type=str, required=True,
                         help="Directory to save the aggregated global adapter")
     parser.add_argument("--mode", type=str, default="fedavg",
-                        choices=["fedavg", "flexlora", "hetlora"],
+                        choices=["fedavg", "flexlora", "qrsvd", "hetlora"],
                         help="Aggregation mode (default: fedavg)")
     parser.add_argument("--global_rank", type=int, default=64,
                         help="Global LoRA rank for FlexLoRA (default: 64)")
@@ -495,6 +715,14 @@ def main():
         )
     elif args.mode == "flexlora":
         aggregate_flexlora(
+            args.client_dirs,
+            args.output_dir,
+            args.global_rank,
+            client_weights=args.client_weights,
+            global_model_path=args.global_model_path,
+        )
+    elif args.mode == "qrsvd":
+        aggregate_qrsvd(
             args.client_dirs,
             args.output_dir,
             args.global_rank,

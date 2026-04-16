@@ -247,6 +247,7 @@ def run_round_persistent(
     round_idx, num_clients, output_dir, base_model, client_ranks, global_rank,
     total_rounds, gpu_ids, processes, signal_dir,
     flexlora=False,
+    agg_mode=None,
 ):
     """
     Execute one FL round using persistent workers.
@@ -295,7 +296,7 @@ def run_round_persistent(
         os.path.join(BASE_DIR, "aggregate.py"),
         "--client_dirs", *client_dirs,
         "--output_dir",  global_dir,
-        "--mode",        "flexlora" if flexlora else "fedavg",
+        "--mode",        agg_mode or ("flexlora" if flexlora else "fedavg"),
         "--global_rank", str(global_rank),
     ]
     if global_model_path:
@@ -325,6 +326,7 @@ def run_round(
     hetlora=False,
     het_lambda=0.01,
     het_gamma=0.5,
+    agg_mode=None,
 ):
     num_gpus = len(gpu_ids)
     num_batches = math.ceil(num_clients / num_gpus)
@@ -387,12 +389,12 @@ def run_round(
         os.path.join(BASE_DIR, "aggregate.py"),
         "--client_dirs", *client_dirs,
         "--output_dir",  global_dir,
-        "--mode",        "hetlora" if hetlora else "flexlora" if flexlora else "fedavg",
+        "--mode",        agg_mode or ("hetlora" if hetlora else "flexlora" if flexlora else "fedavg"),
         "--global_rank", str(global_rank),
     ]
     if global_model_path:
         agg_cmd += ["--global_model_path", global_model_path]
-        
+
     if subprocess.run(agg_cmd).returncode != 0:
         print(f"ERROR: Aggregation failed in round {round_idx}")
         return False
@@ -474,6 +476,12 @@ def main():
                         help="Per-client LoRA ranks for FlexLoRA/HetLoRA (cycles if shorter than "
                              "num_clients). Default: [4, 16, 32, 64]")
 
+    # QR-SVD (same client training as FlexLoRA, faster aggregation)
+    parser.add_argument("--qrsvd", action="store_true",
+                        help="Enable QR-SVD aggregation: identical heterogeneous-rank client "
+                             "training as FlexLoRA but replaces the full-matrix SVD with the "
+                             "QR + mini-SVD trick (avoids forming the [out×in] matrix).")
+
     # HetLoRA
     parser.add_argument("--hetlora", action="store_true",
                         help="Enable HetLoRA (EMNLP 2024)")
@@ -500,7 +508,16 @@ def main():
         gpu_ids = list(range(detect_num_gpus()))
 
     # ── resolve per-client ranks ──
-    if args.flexlora:
+    agg_mode = None   # None → derive from flags inside run_round*
+    if args.qrsvd:
+        # Client training identical to FlexLoRA; only aggregation differs.
+        args.flexlora = True
+        agg_mode      = "qrsvd"
+        base_ranks    = args.ranks or [4, 16, 32, 64]
+        client_ranks  = [base_ranks[i % len(base_ranks)] for i in range(args.num_clients)]
+        global_rank   = max(client_ranks)
+        mode_str      = f"QR-SVD  client_ranks={client_ranks}  global_rank={global_rank}"
+    elif args.flexlora:
         base_ranks   = args.ranks or [4, 16, 32, 64]
         client_ranks = [base_ranks[i % len(base_ranks)] for i in range(args.num_clients)]
         global_rank  = max(client_ranks)
@@ -568,6 +585,7 @@ def main():
                 processes    = persistent_procs,
                 signal_dir   = sig_dir,
                 flexlora     = args.flexlora,
+                agg_mode     = agg_mode,
             )
             if not ok:
                 print(f"\nSimulation aborted at round {r}.")
@@ -614,6 +632,7 @@ def main():
                 hetlora      = args.hetlora,
                 het_lambda   = args.het_lambda,
                 het_gamma    = args.het_gamma,
+                agg_mode     = agg_mode,
             )
             if not ok:
                 print(f"\nSimulation aborted at round {r}.")
