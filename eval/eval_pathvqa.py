@@ -85,13 +85,14 @@ def _batched(items: list, batch_size: int) -> Iterable[list]:
 
 # ── dataset ───────────────────────────────────────────────────────────────────
 
-def load_eval_samples(n_samples: int = None, seed: int = 42):
+def load_eval_samples(n_samples: int = None, seed: int = 42, split: str = "test"):
     """
-    Load n_samples from the PathVQA test split, balanced between
+    Load n_samples from the PathVQA split, balanced between
     yes/no and open-ended questions. If n_samples is None, use all samples.
+    split: "test" (default) or "validation"
     """
-    print("Loading PathVQA test split …")
-    ds = load_dataset("flaviagiammarino/path-vqa", split="test")
+    print(f"Loading PathVQA {split} split …")
+    ds = load_dataset("flaviagiammarino/path-vqa", split=split)
 
     if n_samples is None:
         print(f"  Using all {len(ds)} samples.")
@@ -385,6 +386,9 @@ def main():
     parser.add_argument("--output_json",   type=str, default=None,
                         help="Where to save JSON results (default: auto-named next to peft_path)")
     parser.add_argument("--load_in_4bit",  action="store_true")
+    parser.add_argument("--split",         type=str, default="test",
+                        choices=["test", "validation"],
+                        help="PathVQA split to evaluate on (default: test)")
     args = parser.parse_args()
 
     # ── output path ──
@@ -443,7 +447,7 @@ def main():
         n_samples = None
     else:
         n_samples = int(args.n_samples)
-    samples = load_eval_samples(n_samples)
+    samples = load_eval_samples(n_samples, split=args.split)
 
     # ── inference ──
     predictions = run_inference(

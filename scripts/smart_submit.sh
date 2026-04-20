@@ -14,7 +14,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON="${SCRIPT_DIR}/../miniconda3/envs/visper/bin/python"
+PYTHON="/mimer/NOBACKUP/groups/bloom/shenghui/miniconda3/envs/visper/bin/python"
 # Fall back to any python3 in PATH if the conda env path is missing
 command -v "$PYTHON" &>/dev/null || PYTHON="python3"
 
