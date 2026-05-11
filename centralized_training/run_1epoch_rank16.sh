@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH -A NAISS2025-22-1535 -p alvis
-#SBATCH -N 1 --gpus-per-node=A40:1
+#SBATCH -N 1 --gpus-per-node=A40:2
 #SBATCH --job-name=1ep_r16
 #SBATCH --tasks-per-node=1
 #SBATCH --exclude=alvis3-08
-#SBATCH --time=6:00:00
+#SBATCH --time=2:00:00
 #SBATCH --output=/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/slurm_1epoch_rank16_%j.out
 
 ml load CUDA/12.6.0
