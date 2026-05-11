@@ -14,7 +14,7 @@ export UNSLOTH_RETURN_LOGITS=1
 
 PYTHON=/mimer/NOBACKUP/groups/bloom/shenghui/miniconda3/envs/visper/bin/python
 
-$PYTHON /mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/train_1epoch.py \
+$PYTHON /mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/train_centralized.py \
     --rank 16 \
     --output_dir /mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/1epoch_rank16
 

@@ -13,7 +13,7 @@ export TORCHDYNAMO_DISABLE=1
 export UNSLOTH_RETURN_LOGITS=1
 
 PYTHON_BIN=/mimer/NOBACKUP/groups/bloom/shenghui/miniconda3/envs/visper/bin
-TRAIN=/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/train_1epoch.py
+TRAIN=/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/train_centralized.py
 OUTPUT=/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/2epoch_rank4
 
 $PYTHON_BIN/torchrun --nproc_per_node=2 $TRAIN \

@@ -13,7 +13,7 @@ export TORCHDYNAMO_DISABLE=1
 export UNSLOTH_RETURN_LOGITS=1
 
 PYTHON_BIN=/mimer/NOBACKUP/groups/bloom/shenghui/miniconda3/envs/visper/bin
-TRAIN=/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/train_1epoch.py
+TRAIN=/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/train_centralized.py
 OUTPUT=/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/2epoch_rank16
 
 MASTER_PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); p=s.getsockname()[1]; s.close(); print(p)")

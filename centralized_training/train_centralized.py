@@ -2,8 +2,8 @@
 Standalone centralized fine-tuning on full PathVQA for rank comparison.
 
 Usage:
-    python train_1epoch.py --rank 16 --num_epochs 2 --output_dir /path/to/rank16
-    python train_1epoch.py --rank 64 --num_epochs 2 --output_dir /path/to/rank64
+    python train_centralized.py --rank 16 --num_epochs 2 --output_dir /path/to/rank16
+    python train_centralized.py --rank 64 --num_epochs 2 --output_dir /path/to/rank64
 
 Produces:
   - Trained LoRA adapter checkpoints
