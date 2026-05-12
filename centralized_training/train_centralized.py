@@ -2,8 +2,8 @@
 Standalone centralized fine-tuning on full PathVQA for rank comparison.
 
 Usage:
-    python train_1epoch.py --rank 16 --num_epochs 2 --output_dir /path/to/rank16
-    python train_1epoch.py --rank 64 --num_epochs 2 --output_dir /path/to/rank64
+    python train_centralized.py --rank 16 --num_epochs 2 --output_dir /path/to/rank16
+    python train_centralized.py --rank 64 --num_epochs 2 --output_dir /path/to/rank64
 
 Produces:
   - Trained LoRA adapter checkpoints
@@ -14,6 +14,12 @@ Produces:
 import argparse, json, os, re, subprocess, warnings
 from collections import Counter
 from pathlib import Path
+
+import torch.distributed as _dist
+
+
+def _is_main_process() -> bool:
+    return not _dist.is_initialized() or _dist.get_rank() == 0
 
 import torch
 from datasets import load_dataset
@@ -107,9 +113,10 @@ def _submit_eval_job(base_model: str, checkpoint_dir: str) -> str | None:
     run_dir = _result_run_dir(output_dir, 0, 0)
     rank_match = re.search(r"rank(\d+)", output_dir)
     rank_suffix = rank_match.group(1) if rank_match else "ckpt"
-    script_path = os.path.join(output_dir, "submit_eval.sh")
-    log_path = run_dir / "eval_%j.out"
-    output_json = run_dir / "pathvqa_eval.json"
+    ckpt_name = Path(checkpoint_dir).name
+    script_path = os.path.join(output_dir, f"submit_eval_{ckpt_name}.sh")
+    log_path = run_dir / f"eval_{ckpt_name}_%j.out"
+    output_json = run_dir / f"pathvqa_eval_{ckpt_name}.json"
     tmp_dir = os.path.join(output_dir, ".eval_tmp")
     inductor_dir = os.path.join(output_dir, ".torchinductor")
     triton_dir = os.path.join(output_dir, ".triton")
@@ -136,10 +143,9 @@ export TMPDIR={tmp_dir}
 export TORCHINDUCTOR_CACHE_DIR={inductor_dir}
 export TRITON_CACHE_DIR={triton_dir}
 
-/mimer/NOBACKUP/groups/bloom/shenghui/miniconda3/envs/visper/bin/python /mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/eval_pathvqa.py \\
+/mimer/NOBACKUP/groups/bloom/shenghui/miniconda3/envs/visper/bin/python /mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/evaluation/eval_pathvqa.py \\
     --base_model {base_model} \\
     --peft_path {checkpoint_dir} \\
-    --split test \\
     --output_json {str(output_json)}
 """
         )
@@ -270,6 +276,7 @@ def main():
     parser.add_argument("--num_epochs", type=int, default=2)
     parser.add_argument("--max_seq_len",type=int, default=512)
     parser.add_argument("--max_steps",  type=int, default=-1)
+    parser.add_argument("--batch_size", type=int, default=64)
     args = parser.parse_args()
 
     if args.output_dir is None:
@@ -305,7 +312,7 @@ def main():
     model.print_trainable_parameters()
 
     # ── train ──
-    eff_batch = 64  # 64 × grad_accum 1
+    eff_batch = args.batch_size
     total_steps = len(train_ds) // eff_batch
     print(
         f"\n{args.num_epochs}-epoch training: "
@@ -322,13 +329,13 @@ def main():
         train_dataset=train_ds,
         args=SFTConfig(
             output_dir=args.output_dir,
-            per_device_train_batch_size=64,
+            per_device_train_batch_size=args.batch_size,
             gradient_accumulation_steps=1,
             per_device_eval_batch_size=8,
             num_train_epochs=args.num_epochs,
             eval_strategy="no",
             save_strategy="epoch",
-            logging_steps=10,
+            logging_steps=1,
             learning_rate=2e-4,
             optim="adamw_8bit",
             weight_decay=0.001,
@@ -336,7 +343,7 @@ def main():
             warmup_ratio=0.03,
             seed=3407,
             report_to="none",
-            save_total_limit=1,
+            save_total_limit=2,
             disable_tqdm=False,
             remove_unused_columns=True,
             dataset_text_field="",
@@ -353,26 +360,41 @@ def main():
     train_result = trainer.train()
     print(f"Training done. Runtime: {train_result.metrics['train_runtime']:.1f}s")
 
+    if not _is_main_process():
+        return
+
     # ── collect train loss curve from trainer state ──
     train_log = [
         {"step": e["step"], "loss": e["loss"]}
         for e in trainer.state.log_history
         if "loss" in e and "eval_loss" not in e
     ]
-    latest_ckpt = _latest_checkpoint(args.output_dir)
-    eval_job_id = _submit_eval_job(args.base_model, latest_ckpt) if latest_ckpt else None
+
+    # ── collect all saved epoch checkpoints and submit eval for each ──
+    all_ckpts = sorted(
+        Path(args.output_dir).glob("checkpoint-*"),
+        key=lambda p: int(p.name.split("-")[1]),
+    )
+    eval_job_ids = {}
+    for ckpt in all_ckpts:
+        job_id = _submit_eval_job(args.base_model, str(ckpt))
+        eval_job_ids[ckpt.name] = job_id
+
+    latest_ckpt = str(all_ckpts[-1]) if all_ckpts else None
 
     # ── save results ──
     run_dir = _result_run_dir(args.output_dir, args.num_epochs, args.rank)
     results = {
-        "rank":          args.rank,
-        "num_epochs":    args.num_epochs,
-        "base_model":    args.base_model,
-        "train_samples": len(train_ds),
-        "train_metrics": train_result.metrics,
+        "rank":             args.rank,
+        "num_epochs":       args.num_epochs,
+        "base_model":       args.base_model,
+        "train_samples":    len(train_ds),
+        "batch_size":       args.batch_size,
+        "train_metrics":    train_result.metrics,
         "train_loss_curve": train_log,
+        "checkpoints":      [str(c) for c in all_ckpts],
         "final_checkpoint": latest_ckpt,
-        "eval_job_id":   eval_job_id,
+        "eval_job_ids":     eval_job_ids,
     }
     out_path = run_dir / "results.json"
     with open(out_path, "w") as f:
@@ -382,8 +404,9 @@ def main():
     print(f"  rank={args.rank}  {args.num_epochs}-epoch results")
     print("="*60)
     print(f"  Train loss (final): {train_log[-1]['loss'] if train_log else 'N/A'}")
-    print(f"  Final checkpoint:   {latest_ckpt or 'N/A'}")
-    print(f"  Eval job id:        {eval_job_id or 'submission failed'}")
+    print(f"  Saved checkpoints:  {[c.name for c in all_ckpts]}")
+    for ckpt_name, job_id in eval_job_ids.items():
+        print(f"  Eval job {ckpt_name}: {job_id or 'submission failed'}")
     print(f"  Results saved → {str(out_path)}")
     print("="*60)
 

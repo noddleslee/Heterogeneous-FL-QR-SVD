@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH -A NAISS2025-22-1535 -p alvis
-#SBATCH -N 1 --gpus-per-node=A100fat:1
+#SBATCH -N 1 --gpus-per-node=A40:2
 #SBATCH --job-name=1ep_r64
 #SBATCH --tasks-per-node=1
 #SBATCH --exclude=alvis3-08
-#SBATCH --time=6:00:00
+#SBATCH --time=2:00:00
 #SBATCH --output=/mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/slurm_1epoch_rank64_%j.out
 
 ml load CUDA/12.6.0
@@ -15,7 +15,7 @@ export UNSLOTH_RETURN_LOGITS=1
 
 PYTHON=/mimer/NOBACKUP/groups/bloom/shenghui/miniconda3/envs/visper/bin/python
 
-$PYTHON /mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/train_1epoch.py \
+$PYTHON /mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/train_centralized.py \
     --rank 64 \
     --output_dir /mimer/NOBACKUP/groups/bloom/shenghui/hfedlora/centralized_training/1epoch_rank64
 
