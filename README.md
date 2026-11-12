@@ -6,9 +6,17 @@ Efficient server aggregation for federated fine-tuning when clients use differen
 
 ## What is QR-SVD?
 
-QR-SVD is a server-side aggregation method proposed in this thesis for federated fine-tuning with heterogeneous LoRA ranks. FlexLoRA reconstructs each client's full weight update, averages these updates, and applies SVD to obtain a rank-constrained global adapter.
+QR-SVD is a server-side aggregation method proposed in this thesis for federated fine-tuning with heterogeneous LoRA ranks. FlexLoRA reconstructs and averages the client weight updates into a full $d_{\mathrm{out}}\times d_{\mathrm{in}}$ matrix, then performs SVD on this full matrix and truncates the result to the target rank. Here, $d_{\mathrm{out}}$ and $d_{\mathrm{in}}$ are the output and input dimensions of the adapted weight matrix.
 
-QR-SVD instead stacks the weighted low-rank factors, performs two thin QR decompositions, and applies SVD to a smaller $\rho\times\rho$ core, where $\rho=\sum_k r_k$ is the total client rank. Mapping the singular vectors back to the original dimensions produces a numerically equivalent rank-constrained update without explicitly forming the full weight-update matrix. Local training follows FlexLoRA.
+QR-SVD instead stacks the weighted low-rank factors, performs two thin QR decompositions, and applies SVD to a $\rho\times\rho$ core matrix. Mapping the singular vectors back to the original dimensions produces a numerically equivalent rank-constrained update without explicitly forming the full weight-update matrix. Local training follows FlexLoRA.
+
+**The key efficiency condition:** in the intended low-rank setting, the total client rank is much smaller than the full matrix dimensions:
+
+$$
+\rho=\sum_{k=1}^{K}r_k \ll \min(d_{\mathrm{out}},d_{\mathrm{in}}).
+$$
+
+For example, with $\rho=120$ and $d_{\mathrm{out}}=d_{\mathrm{in}}=1024$, the core SVD operates on a **120 × 120** matrix instead of a **1024 × 1024** matrix.
 
 ![Original FlexLoRA workflow with a comparison of the server computation in QR-SVD](assets/01_flexlora_vs_qrsvd.png)
 
