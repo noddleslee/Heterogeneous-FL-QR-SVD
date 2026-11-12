@@ -31,13 +31,13 @@ if [[ ! -f "$SCRIPT" ]]; then
     exit 1
 fi
 
-# ���� detect how many GPUs the script requests ��������������������������������������������������������������������
+# ── detect how many GPUs the script requests ──────────────────────────────────
 # Read #SBATCH --gpus-per-node=TYPE:N and extract N (default 2)
 N_GPUS=$(grep -oE '\-\-gpus-per-node=[A-Za-z0-9]+:([0-9]+)' "$SCRIPT" 2>/dev/null \
          | grep -oE '[0-9]+$' | head -1)
 N_GPUS="${N_GPUS:-2}"
 
-# ���� pick the GPU type with the most free GPUs ������������������������������������������������������������������
+# ── pick the GPU type with the most free GPUs ─────────────────────────────────
 # pick_gpu.py prints the winner to stdout and free-count info to stderr
 GPU_TYPE=$("$PYTHON" "$SCRIPT_DIR/../core/pick_gpu.py")
 if [[ -z "$GPU_TYPE" ]]; then

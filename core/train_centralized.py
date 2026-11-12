@@ -1,19 +1,19 @@
 """
-Centralized training script for PathVQA �� matched to FL-B for fair comparison.
+Centralized training script for PathVQA — matched to FL-B for fair comparison.
 
 Config alignment with FL-B:
   1. Model        : Qwen/Qwen3.5-0.8B           (same as FL-B)
   2. Eval split   : official PathVQA validation  (not random 10% of train)
   3. Yes/no prompt: adds "? Please answer yes or no."  (matches FL-B)
   4. Batch size   : configurable via --batch_size (64 or 256)
-  5. Total steps  : 1,000                        (matches FL-B: 10 rounds �� 100 steps)
+  5. Total steps  : 1,000                        (matches FL-B: 10 rounds × 100 steps)
   6. warmup_ratio : 0.03
   7. weight_decay : 0.001                        (matches FL-B)
   8. max_length   : 512                          (matches FL-B)
 
 Two configurations:
-  --batch_size 64  �� 1,000 steps �� 64  / 19,654 samples ��  3.25 epochs (matches FL optimizer-step count)
-  --batch_size 256 �� 1,000 steps �� 256 / 19,654 samples �� 13.02 epochs (matches FL total sample views)
+  --batch_size 64  → 1,000 steps × 64  / 19,654 samples ≈  3.25 epochs (matches FL optimizer-step count)
+  --batch_size 256 → 1,000 steps × 256 / 19,654 samples ≈ 13.02 epochs (matches FL total sample views)
 
 Usage:
   python train_centralized.py --rank 4  --batch_size 64  --output_dir results/centralized_r4_b64
@@ -47,7 +47,7 @@ _PYTHON     = python_executable()
 _EVAL_SCRIPT = evaluation_script()
 
 
-# ���� dataset helpers �� identical to train_client.py ��������������������������������������������������������
+# ── dataset helpers — identical to train_client.py ────────────────────────────
 
 def _is_valid_image(sample):
     try:
@@ -64,7 +64,7 @@ def _is_yes_no(answer: str) -> bool:
 class LazyPathVQADataset(torch.utils.data.Dataset):
     """
     Change 3: adds "? Please answer yes or no." to yes/no questions.
-    Identical to train_client.py �� ensures the same prompt format as FL-B.
+    Identical to train_client.py — ensures the same prompt format as FL-B.
     """
     def __init__(self, hf_ds):
         self.hf_ds = hf_ds
@@ -116,7 +116,7 @@ def load_split(split: str) -> LazyPathVQADataset:
     return LazyPathVQADataset(ds)
 
 
-# ���� results helpers ����������������������������������������������������������������������������������������������������������������������
+# ── results helpers ───────────────────────────────────────────────────────────
 
 def _submit_eval_job(base_model: str, checkpoint_dir: str, output_dir: str) -> str | None:
     checkpoint_dir = os.path.abspath(checkpoint_dir)
@@ -171,7 +171,7 @@ export TRITON_CACHE_DIR={triton_dir}
         return None
 
 
-# ���� main ��������������������������������������������������������������������������������������������������������������������������������������������
+# ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
@@ -190,7 +190,7 @@ def main():
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":8192:8"
     os.environ["UNSLOTH_RETURN_LOGITS"]   = "1"
 
-    # ���� Change 1: Qwen/Qwen3.5-0.8B ����
+    # ── Change 1: Qwen/Qwen3.5-0.8B ──
     print(f"\nLoading {args.base_model}  rank={args.rank} ...")
     model, tokenizer = FastVisionModel.from_pretrained(
         model_name=args.base_model,
@@ -211,7 +211,7 @@ def main():
     )
     model.print_trainable_parameters()
 
-    # ���� Changes 2 + 3: official validation split + yes/no prompt ����
+    # ── Changes 2 + 3: official validation split + yes/no prompt ──
     train_ds = load_split("train")
     val_ds   = load_split("validation")
     steps_per_epoch = len(train_ds) // args.batch_size
@@ -303,7 +303,7 @@ def main():
     print(f"  Results saved -> {out_path}")
     print("="*60)
 
-    # ���� save final adapter ����
+    # ── save final adapter ──
     adapter_dir = os.path.join(args.output_dir, "adapter")
     model.save_pretrained(adapter_dir)
     tokenizer.save_pretrained(adapter_dir)

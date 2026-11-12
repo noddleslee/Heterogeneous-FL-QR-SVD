@@ -25,4 +25,4 @@ RESULTS_DIR="${HFEDLORA_RESULTS_DIR:-$SIM_DIR/results/runs}"
     --output_dir $RESULTS_DIR/fed_sim_qrsvd_c12_0.8B \
     --base_model Qwen/Qwen3.5-0.8B --epochs 1 --max_steps 100
 
-echo "Done: QR-SVD c=12 [8,16,32,64]��3 0.8B"
+echo "Done: QR-SVD c=12 [8,16,32,64]×3 0.8B"

@@ -39,7 +39,7 @@ from transformers import GPT2Config, GPT2LMHeadModel, GPT2Tokenizer, TrainerCall
 from trl import SFTConfig, SFTTrainer
 
 
-# ���� tiny model & dataset helpers ����������������������������������������������������������������������������������������������
+# ── tiny model & dataset helpers ───────────────────────────────────────────────
 
 def make_tiny_peft_model(seed: int = 0):
     """
@@ -72,7 +72,7 @@ def get_tokenizer():
 
 def make_tiny_dataset(n: int = 64, seq_len: int = 16):
     """
-    Pre-tokenized dataset �� skip_prepare_dataset=True bypasses SFTTrainer's
+    Pre-tokenized dataset — skip_prepare_dataset=True bypasses SFTTrainer's
     tokenisation so we never need to call the tokenizer on data.
     """
     torch.manual_seed(0)
@@ -134,7 +134,7 @@ def lora_param_snapshot(model):
     }
 
 
-# ���� _find_latest_checkpoint ��������������������������������������������������������������������������������������������������������
+# ── _find_latest_checkpoint ────────────────────────────────────────────────────
 
 class TestFindLatestCheckpoint:
     def test_empty_dir_returns_none(self, tmp_path):
@@ -164,7 +164,7 @@ class TestFindLatestCheckpoint:
         assert result is None
 
 
-# ���� FLSFTTrainer unit tests ��������������������������������������������������������������������������������������������������������
+# ── FLSFTTrainer unit tests ────────────────────────────────────────────────────
 
 class TestFLSFTTrainerUnit:
     def test_load_from_checkpoint_is_noop(self, tmp_path):
@@ -180,7 +180,7 @@ class TestFLSFTTrainerUnit:
 
         before = lora_param_snapshot(model)
 
-        # Non-existent path �� a real implementation would crash; ours must not
+        # Non-existent path — a real implementation would crash; ours must not
         trainer._load_from_checkpoint("/nonexistent/fake/path")
 
         after = lora_param_snapshot(model)
@@ -219,7 +219,7 @@ class TestFLSFTTrainerUnit:
         )
 
 
-# ���� integration tests (tiny GPT-2, CPU training) ������������������������������������������������������������
+# ── integration tests (tiny GPT-2, CPU training) ──────────────────────────────
 
 @pytest.mark.integration
 class TestStatefulTraining:
@@ -230,15 +230,15 @@ class TestStatefulTraining:
     simulates FL aggregation (injects known adapter weights), then resumes
     and verifies the trainer state carries over correctly.
 
-    These run on CPU and take ~10�C30 s total.
+    These run on CPU and take ~10–30 s total.
     """
 
     def test_global_step_continues_across_rounds(self, tmp_path):
         """
         global_step must NOT reset between FL rounds.
 
-        Round 0: trains 0��N steps,   saves checkpoint-N.
-        Round 1: resumes from ckpt,  trains N��2N steps.
+        Round 0: trains 0→N steps,   saves checkpoint-N.
+        Round 1: resumes from ckpt,  trains N→2N steps.
         Final state.global_step == 2N.
         """
         model = make_tiny_peft_model()
@@ -248,7 +248,7 @@ class TestStatefulTraining:
 
         N = 3  # steps per round
 
-        # ���� Round 0 ��������������������������������������������������������������������������������������������������������������������
+        # ── Round 0 ──────────────────────────────────────────────────────────
         t0 = make_fl_trainer(model, dataset, ckpt_dir, round_idx=0, steps_per_round=N, total_rounds=2)
         t0.train()
 
@@ -260,7 +260,7 @@ class TestStatefulTraining:
         assert Path(ckpt).name == f"checkpoint-{N}", \
             f"Expected checkpoint-{N}, found {Path(ckpt).name}"
 
-        # ���� Round 1 ��������������������������������������������������������������������������������������������������������������������
+        # ── Round 1 ──────────────────────────────────────────────────────────
         t1 = make_fl_trainer(model, dataset, ckpt_dir, round_idx=1, steps_per_round=N, total_rounds=2)
         t1.train(resume_from_checkpoint=ckpt)
 
@@ -287,7 +287,7 @@ class TestStatefulTraining:
         t0.train()
         ckpt = _find_latest_checkpoint(ckpt_dir)
 
-        # ���� Simulate FL aggregation: fill all LoRA weights with sentinel ����
+        # ── Simulate FL aggregation: fill all LoRA weights with sentinel ──
         SENTINEL = 42.0
         with torch.no_grad():
             for name, param in model.named_parameters():
@@ -325,7 +325,7 @@ class TestStatefulTraining:
         """
         The LR at the start of round 1 must equal the LR at the end of round 0.
         If the scheduler restarted each round, round 1 would begin at the
-        initial (higher) LR �� which would be a discontinuity.
+        initial (higher) LR — which would be a discontinuity.
         """
         model = make_tiny_peft_model()
         dataset = make_tiny_dataset()

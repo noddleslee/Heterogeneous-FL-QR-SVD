@@ -1,5 +1,5 @@
 """
-Unit tests for aggregate.py �� SVD math, FedAvg, and FlexLoRA aggregation.
+Unit tests for aggregate.py — SVD math, FedAvg, and FlexLoRA aggregation.
 No model loading required; pure PyTorch + safetensors.
 """
 import json
@@ -18,7 +18,7 @@ from aggregate import (
 )
 
 
-# ���� helpers ����������������������������������������������������������������������������������������������������������������������������������������
+# ── helpers ────────────────────────────────────────────────────────────────────
 
 def _make_adapter_sd(rank, in_dim=32, out_dim=64, n_layers=2):
     """Return a fake adapter state dict with n_layers LoRA pairs."""
@@ -38,7 +38,7 @@ def _save_adapter(sd, directory, rank):
         json.dump({"r": rank, "lora_alpha": rank * 2, "target_modules": ["proj"]}, f)
 
 
-# ���� _svd_to_rank ������������������������������������������������������������������������������������������������������������������������������
+# ── _svd_to_rank ───────────────────────────────────────────────────────────────
 
 class TestSvdToRank:
     def test_output_shapes(self):
@@ -54,7 +54,7 @@ class TestSvdToRank:
         delta_W = torch.randn(64, 32)
         A, B = _svd_to_rank(delta_W, rank=16, orig_dtype=torch.float32)
         recon = B.float() @ A.float()
-        # Relative Frobenius error �� rank-16 approx of a full-rank 64��32 matrix
+        # Relative Frobenius error — rank-16 approx of a full-rank 64×32 matrix
         rel_err = (recon - delta_W).norm() / delta_W.norm()
         assert rel_err < 0.9, f"Reconstruction too poor: rel_err={rel_err:.3f}"
 
@@ -73,7 +73,7 @@ class TestSvdToRank:
     def test_zero_padding_when_matrix_smaller_than_rank(self):
         """
         When min(out, in) < rank, output must be zero-padded to [rank, in] / [out, rank].
-        A 3��3 matrix has at most 3 singular values, but we request rank 8.
+        A 3×3 matrix has at most 3 singular values, but we request rank 8.
         """
         delta_W = torch.randn(3, 3)
         A, B = _svd_to_rank(delta_W, rank=8, orig_dtype=torch.float32)
@@ -106,7 +106,7 @@ class TestSvdToRank:
         assert not torch.isnan(B).any(), "B contains NaN"
 
 
-# ���� _infer_rank ��������������������������������������������������������������������������������������������������������������������������������
+# ── _infer_rank ────────────────────────────────────────────────────────────────
 
 class TestInferRank:
     def test_infer_from_state_dict(self):
@@ -122,7 +122,7 @@ class TestInferRank:
             _infer_rank({})
 
 
-# ���� FedAvg ������������������������������������������������������������������������������������������������������������������������������������������
+# ── FedAvg ─────────────────────────────────────────────────────────────────────
 
 class TestFedAvg:
     def test_two_clients_exact_mean(self, tmp_path):
@@ -170,7 +170,7 @@ class TestFedAvg:
         assert os.path.exists(os.path.join(out, "adapter_config.json"))
 
 
-# ���� FlexLoRA ��������������������������������������������������������������������������������������������������������������������������������������
+# ── FlexLoRA ───────────────────────────────────────────────────────────────────
 
 class TestFlexLoRA:
     def test_output_shapes_match_global_rank(self, tmp_path):
@@ -191,7 +191,7 @@ class TestFlexLoRA:
                 assert v.shape[1] == global_rank, f"{k}: B rank={v.shape[1]}"
 
     def test_adapter_config_updated_to_global_rank(self, tmp_path):
-        """adapter_config.json r must be global_rank, lora_alpha = 2 �� global_rank."""
+        """adapter_config.json r must be global_rank, lora_alpha = 2 × global_rank."""
         for i, r in enumerate([4, 16]):
             _save_adapter(_make_adapter_sd(r), str(tmp_path / f"c{i}"), r)
 
@@ -220,7 +220,7 @@ class TestFlexLoRA:
     def test_single_client_weight_zero_excluded(self, tmp_path):
         """
         With client_weights=[0, 1], the zero-weight client must not affect
-        the aggregated ��W.  The global adapter must reconstruct client 1's
+        the aggregated ΔW.  The global adapter must reconstruct client 1's
         weight delta with near-zero error.
         """
         torch.manual_seed(7)

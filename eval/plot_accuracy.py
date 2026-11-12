@@ -15,7 +15,7 @@ import numpy as np
 
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "results")
 
-# ���� data ��������������������������������������������������������������������������������������������������������������������������������������������
+# ── data ──────────────────────────────────────────────────────────────────────
 
 def load_rounds(exp_name, n_rounds=10):
     rounds, accs = [], []
@@ -38,7 +38,7 @@ EXPERIMENTS = [
     ("HetLoRA [4,16,32,64]",  "fed_sim_hetlora_4_16_32_64_g099", "#ff7f0e", "v", "-", 1),
 ]
 
-# ���� plot ��������������������������������������������������������������������������������������������������������������������������������������������
+# ── plot ──────────────────────────────────────────────────────────────────────
 
 def make_plot(output_path):
     fig, ax = plt.subplots(figsize=(12, 7), dpi=200)
@@ -66,7 +66,7 @@ def make_plot(output_path):
 
         final_points.append((accs[-1], f"{accs[-1]:.3f}", color, rounds[-1]))
 
-    # Right-side value labels �� sort by y and spread to avoid overlap
+    # Right-side value labels — sort by y and spread to avoid overlap
     final_points.sort(key=lambda x: x[0])
     y_vals = [p[0] for p in final_points]
     # Minimum gap between labels (in data units)
@@ -101,10 +101,10 @@ def make_plot(output_path):
     plt.tight_layout()
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     plt.savefig(output_path, bbox_inches="tight")
-    print(f"Saved �� {output_path}")
+    print(f"Saved → {output_path}")
 
 
-# ���� CLI ����������������������������������������������������������������������������������������������������������������������������������������������
+# ── CLI ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

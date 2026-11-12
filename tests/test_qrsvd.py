@@ -46,7 +46,7 @@ def _make_clients(out, in_, ranks, seed=42):
 
 
 def _weighted_sum(Bs, As, weights):
-    """Explicitly form �� w_k �� B_k @ A_k (used as ground truth)."""
+    """Explicitly form Σ w_k · B_k @ A_k (used as ground truth)."""
     total = sum(weights)
     W = sum(w / total * (B @ A) for w, B, A in zip(weights, Bs, As))
     return W
@@ -100,8 +100,8 @@ def test_basic_equivalence(out, in_, ranks, global_rank):
     rel_err = _reconstruction_rel_err(B_svd, A_svd, B_qr, A_qr, W)
     sv_err  = _sv_rel_err(B_svd, A_svd, B_qr, A_qr)
 
-    assert rel_err < TOL_REL, f"Reconstruction error {rel_err:.2e} �� {TOL_REL}"
-    assert sv_err  < TOL_SV,  f"Singular value error {sv_err:.2e} �� {TOL_SV}"
+    assert rel_err < TOL_REL, f"Reconstruction error {rel_err:.2e} ≥ {TOL_REL}"
+    assert sv_err  < TOL_SV,  f"Singular value error {sv_err:.2e} ≥ {TOL_SV}"
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ def test_nonuniform_weights(weights):
     A_qr,  B_qr  = _qrsvd_result(Bs, As, weights, global_rank)
 
     rel_err = _reconstruction_rel_err(B_svd, A_svd, B_qr, A_qr, W)
-    assert rel_err < TOL_REL, f"Weighted error {rel_err:.2e} �� {TOL_REL}"
+    assert rel_err < TOL_REL, f"Weighted error {rel_err:.2e} ≥ {TOL_REL}"
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ def test_homogeneous_ranks():
     A_qr,  B_qr  = _qrsvd_result(Bs, As, weights, global_rank)
 
     rel_err = _reconstruction_rel_err(B_svd, A_svd, B_qr, A_qr, W)
-    assert rel_err < TOL_REL, f"Homogeneous error {rel_err:.2e} �� {TOL_REL}"
+    assert rel_err < TOL_REL, f"Homogeneous error {rel_err:.2e} ≥ {TOL_REL}"
 
 
 # ---------------------------------------------------------------------------
@@ -154,16 +154,16 @@ def test_single_client():
     A_qr,  B_qr  = _qr_svd_rank([B], [A], global_rank, torch.float32)
 
     rel_err = _reconstruction_rel_err(B_svd, A_svd, B_qr, A_qr, W)
-    assert rel_err < TOL_REL, f"Single-client error {rel_err:.2e} �� {TOL_REL}"
+    assert rel_err < TOL_REL, f"Single-client error {rel_err:.2e} ≥ {TOL_REL}"
 
 
 # ---------------------------------------------------------------------------
-# 5. Zero-padding: ��r_k < global_rank
+# 5. Zero-padding: Σr_k < global_rank
 #    When there are fewer combined rank slots than global_rank, both methods
 #    must zero-pad and the non-zero portion must match.
 
 def test_zero_padding():
-    out, in_, ranks, global_rank = 256, 256, [4, 8], 64  # ��r_k=12 << 64
+    out, in_, ranks, global_rank = 256, 256, [4, 8], 64  # Σr_k=12 << 64
     Bs, As = _make_clients(out, in_, ranks)
     weights = [1.0] * len(ranks)
     W = _weighted_sum(Bs, As, weights)
@@ -178,7 +178,7 @@ def test_zero_padding():
     assert B_qr.shape  == (out, global_rank)
 
     rel_err = _reconstruction_rel_err(B_svd, A_svd, B_qr, A_qr, W)
-    assert rel_err < TOL_REL, f"Zero-pad error {rel_err:.2e} �� {TOL_REL}"
+    assert rel_err < TOL_REL, f"Zero-pad error {rel_err:.2e} ≥ {TOL_REL}"
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@ def test_end_to_end_no_delta():
             W_ref = B_flex @ A_flex
             rel_err = ((B_flex @ A_flex) - (B_qr @ A_qr)).norm() / W_ref.norm()
             assert rel_err < TOL_REL, \
-                f"End-to-end [{key}] error {rel_err:.2e} �� {TOL_REL}"
+                f"End-to-end [{key}] error {rel_err:.2e} ≥ {TOL_REL}"
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +295,7 @@ def test_end_to_end_with_delta():
             W_ref = B_flex @ A_flex
             rel_err = ((B_flex @ A_flex) - (B_qr @ A_qr)).norm() / W_ref.norm()
             assert rel_err < TOL_REL, \
-                f"Delta end-to-end [{key}] error {rel_err:.2e} �� {TOL_REL}"
+                f"Delta end-to-end [{key}] error {rel_err:.2e} ≥ {TOL_REL}"
 
 
 # ---------------------------------------------------------------------------

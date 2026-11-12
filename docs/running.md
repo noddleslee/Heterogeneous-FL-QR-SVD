@@ -42,7 +42,7 @@ Recompute the summary without a GPU or ML dependencies:
 python eval/summarize_benchmarks.py
 ```
 
-This reads runs 1�C5, checks their configurations, and writes `summary_all.csv`. Means, sample standard deviations and 95% Student t intervals use unrounded JSON values (`t=2.776445`, four degrees of freedom). Small differences from printed confidence-interval endpoints can result from rounding in the thesis. The CSV distinguishes the ratio of mean times from the mean of the five run-level time ratios; the client-count speedup figure uses the latter.
+This reads runs 1–5, checks their configurations, and writes `summary_all.csv`. Means, sample standard deviations and 95% Student t intervals use unrounded JSON values (`t=2.776445`, four degrees of freedom). Small differences from printed confidence-interval endpoints can result from rounding in the thesis. The CSV distinguishes the ratio of mean times from the mean of the five run-level time ratios; the client-count speedup figure uses the latter.
 
 To run a new five-run benchmark on Alvis:
 
@@ -52,7 +52,7 @@ sbatch scripts/submit_benchmark_client_scaling_9B.sh
 sbatch scripts/submit_benchmark_client_scaling_27B.sh
 ```
 
-Benchmark scripts choose new run numbers, so the supplied runs are preserved. The summary command deliberately selects the supplied runs 1�C5.
+Benchmark scripts choose new run numbers, so the supplied runs are preserved. The summary command deliberately selects the supplied runs 1–5.
 
 Accuracy values in the README are reported thesis results. The per-sample validation prediction JSON files are not included in this snapshot.
 

@@ -36,17 +36,17 @@ def preprocess():
     os.makedirs(_SAVE_DIR, exist_ok=True)
     
     for split in ["train", "validation"]:
-        print(f"\nProcessing {split} split ��")
+        print(f"\nProcessing {split} split …")
         ds = load_dataset("flaviagiammarino/path-vqa", split=split)
         
-        print(f"  Filtering {split} ��")
+        print(f"  Filtering {split} …")
         ds = ds.filter(_is_valid_image, num_proc=1)
         
-        print(f"  Converting {split} ��")
+        print(f"  Converting {split} …")
         ds = ds.map(_to_conversation, num_proc=1, remove_columns=ds.column_names)
         
         save_path = os.path.join(_SAVE_DIR, split)
-        print(f"  Saving to {save_path} ��")
+        print(f"  Saving to {save_path} …")
         ds.save_to_disk(save_path)
 
     print("\nPre-processing complete.")

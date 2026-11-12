@@ -5,11 +5,11 @@ GPU scheduling
 --------------
 The script auto-detects available GPUs and assigns clients to GPUs in batches.
 
-  num_clients=4, num_gpus=4  �� 1 batch  of 4 (all parallel)
-  num_clients=4, num_gpus=2  �� 2 batches of 2 (serial batches, parallel within)
-  num_clients=6, num_gpus=4  �� batch[4] then batch[2]
+  num_clients=4, num_gpus=4  → 1 batch  of 4 (all parallel)
+  num_clients=4, num_gpus=2  → 2 batches of 2 (serial batches, parallel within)
+  num_clients=6, num_gpus=4  → batch[4] then batch[2]
 
-Aggregation always sees all client adapters at once �� batching is transparent.
+Aggregation always sees all client adapters at once — batching is transparent.
 
 FL modes
 --------
@@ -25,11 +25,11 @@ import subprocess
 from runtime_config import PROJECT_ROOT, python_executable, evaluation_script
 
 PYTHON_EXE  = [python_executable(), "-u"]
-BASE_DIR    = os.path.dirname(os.path.abspath(__file__))       # �� core/
+BASE_DIR    = os.path.dirname(os.path.abspath(__file__))       # → core/
 EVAL_SCRIPT = evaluation_script()
 
 
-# ���� GPU detection ����������������������������������������������������������������������������������������������������������������������������
+# ── GPU detection ──────────────────────────────────────────────────────────────
 
 def detect_num_gpus() -> int:
     """Return number of visible CUDA GPUs via nvidia-smi (fallback: 1)."""
@@ -44,7 +44,7 @@ def detect_num_gpus() -> int:
         return 1
 
 
-# ���� per-client command builder ��������������������������������������������������������������������������������������������������
+# ── per-client command builder ─────────────────────────────────────────────────
 
 def _build_client_cmd(
     client_id, num_clients, round_idx, output_dir, base_model,
@@ -75,7 +75,7 @@ def _build_client_cmd(
     return cmd
 
 
-# ���� batched client execution ������������������������������������������������������������������������������������������������������
+# ── batched client execution ───────────────────────────────────────────────────
 
 def _run_client_batch(batch, gpu_ids, round_idx, output_dir, num_clients,
                       base_model, global_rank, epochs, max_steps, total_rounds,
@@ -115,7 +115,7 @@ def _run_client_batch(batch, gpu_ids, round_idx, output_dir, num_clients,
         env = os.environ.copy()
         env["CUDA_VISIBLE_DEVICES"] = str(gpu_ids[slot])
 
-        print(f"  Client {client_id} (rank={local_rank}) �� GPU {gpu_ids[slot]}")
+        print(f"  Client {client_id} (rank={local_rank}) → GPU {gpu_ids[slot]}")
         with open(log_path, "w") as f:
             p = subprocess.Popen(cmd, env=env, stdout=f, stderr=subprocess.STDOUT)
         processes.append((client_id, p))
@@ -134,7 +134,7 @@ def _run_client_batch(batch, gpu_ids, round_idx, output_dir, num_clients,
     return ok
 
 
-# ���� round orchestration ����������������������������������������������������������������������������������������������������������������
+# ── round orchestration ────────────────────────────────────────────────────────
 
 def run_round(
     round_idx,
@@ -166,7 +166,7 @@ def run_round(
              f"  [HetLoRA ranks={client_ranks}, global_rank={global_rank}]"
              if hetlora else
              f"  [FedAvg rank={global_rank}]"))
-    print(f"  {num_clients} clients / {num_gpus} GPUs �� {num_batches} batch(es)")
+    print(f"  {num_clients} clients / {num_gpus} GPUs → {num_batches} batch(es)")
     print("=" * 60)
 
     global_model_path = (
@@ -174,10 +174,10 @@ def run_round(
         if round_idx > 0 else None
     )
 
-    # ���� client list: [(client_id, local_rank), ��] ����
+    # ── client list: [(client_id, local_rank), …] ──
     all_clients = [(i, client_ranks[i]) for i in range(num_clients)]
 
-    # ���� process in GPU-sized batches ����
+    # ── process in GPU-sized batches ──
     for b_idx in range(num_batches):
         batch = all_clients[b_idx * num_gpus : (b_idx + 1) * num_gpus]
         batch_gpu_ids = gpu_ids[: len(batch)]   # may be shorter than gpu_ids on last batch
@@ -207,7 +207,7 @@ def run_round(
         if not ok:
             return False, None, {}, None
 
-    # ���� collect per-client training metrics ����
+    # ── collect per-client training metrics ──
     round_loss = {}
     for client_id in range(num_clients):
         m_path = os.path.join(output_dir, f"round_{round_idx}", f"client_{client_id}", "client_metrics.json")
@@ -215,8 +215,8 @@ def run_round(
             with open(m_path) as f:
                 round_loss[f"client_{client_id}"] = json.load(f)
 
-    # ���� aggregate all clients (unchanged regardless of batching) ����
-    print(f"\nAggregating {num_clients} clients for round {round_idx} ��")
+    # ── aggregate all clients (unchanged regardless of batching) ──
+    print(f"\nAggregating {num_clients} clients for round {round_idx} …")
     client_dirs = [
         os.path.join(output_dir, f"round_{round_idx}", f"client_{i}")
         for i in range(num_clients)
@@ -247,20 +247,20 @@ def run_round(
         print(f"ERROR: Aggregation failed in round {round_idx}")
         return False, None, round_loss, None
 
-    # ���� read aggregation timing written by aggregate.py ����
+    # ── read aggregation timing written by aggregate.py ──
     agg_timing_file = os.path.join(global_dir, "agg_timing.json")
     agg_time = None
     if os.path.exists(agg_timing_file):
         with open(agg_timing_file) as f:
             agg_time = json.load(f).get("aggregation_time_s")
 
-    # ���� async SLURM evaluation ����
+    # ── async SLURM evaluation ──
     job_id = _submit_eval(round_idx, output_dir, base_model, global_dir)
     return True, job_id, round_loss, agg_time
 
 
 def _submit_eval(round_idx, output_dir, base_model, global_dir) -> str | None:
-    print(f"Submitting async evaluation job for round {round_idx} ��")
+    print(f"Submitting async evaluation job for round {round_idx} …")
     script      = os.path.join(output_dir, f"round_{round_idx}", "submit_eval.sh")
     result_json = os.path.join(output_dir, f"round_{round_idx}", "eval_results_val.json")
 
@@ -296,7 +296,7 @@ export UNSLOTH_RETURN_LOGITS=1
         return None
 
 
-# ���� main ����������������������������������������������������������������������������������������������������������������������������������������������
+# ── main ───────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="FL simulation for PathVQA (adaptive GPU batching)")
@@ -347,7 +347,7 @@ def main():
 
     args = parser.parse_args()
 
-    # ���� resolve GPU list ����
+    # ── resolve GPU list ──
     if args.gpu_ids is not None:
         gpu_ids = args.gpu_ids
     elif args.num_gpus is not None:
@@ -355,7 +355,7 @@ def main():
     else:
         gpu_ids = list(range(detect_num_gpus()))
 
-    # ���� resolve per-client ranks ����
+    # ── resolve per-client ranks ──
     if args.flexlora:
         base_ranks   = args.ranks or [4, 16, 32, 64]
         client_ranks = [base_ranks[i % len(base_ranks)] for i in range(args.num_clients)]
@@ -380,7 +380,7 @@ def main():
 
     num_batches_per_round = math.ceil(args.num_clients / len(gpu_ids))
     print(f"\n{'='*60}")
-    print(f"  FL SIMULATION  ��  {mode_str}")
+    print(f"  FL SIMULATION  —  {mode_str}")
     print(f"  Rounds   : {args.num_rounds}")
     print(f"  Clients  : {args.num_clients}")
     print(f"  GPUs     : {gpu_ids}  ({len(gpu_ids)} total)")
@@ -392,7 +392,7 @@ def main():
     training_curves   = {}
     aggregation_times = {}
     for r in range(args.start_round, args.num_rounds):
-        # ���� [HetLoRA] update client ranks from persistent state ����
+        # ── [HetLoRA] update client ranks from persistent state ──
         if args.hetlora and r > 0:
             for i in range(args.num_clients):
                 rank_file = os.path.join(args.output_dir, f"client_{i}_rank.json")
@@ -402,10 +402,10 @@ def main():
                     old_rank = client_ranks[i]
                     client_ranks[i] = rank_info["rank"]
                     if client_ranks[i] != old_rank:
-                        print(f"  [HetLoRA] Client {i} rank updated: {old_rank} �� {client_ranks[i]} (pruned in round {rank_info['round']})")
+                        print(f"  [HetLoRA] Client {i} rank updated: {old_rank} → {client_ranks[i]} (pruned in round {rank_info['round']})")
             new_global_rank = max(client_ranks)
             if new_global_rank != global_rank:
-                print(f"  [HetLoRA] global_rank updated: {global_rank} �� {new_global_rank}")
+                print(f"  [HetLoRA] global_rank updated: {global_rank} → {new_global_rank}")
                 global_rank = new_global_rank
             print(f"  [HetLoRA] Current ranks: {client_ranks}, global_rank: {global_rank}")
 
@@ -435,7 +435,7 @@ def main():
             print(f"\nSimulation aborted at round {r}.")
             break
 
-    # ���� write results.json ����
+    # ── write results.json ──
     if args.qrsvd:
         mode_key = "qrsvd"
     elif args.flexlora:
@@ -463,7 +463,7 @@ def main():
 
     print("\n" + "=" * 60)
     print("  FEDERATED SIMULATION COMPLETE")
-    print(f"  Results saved �� {out_path}")
+    print(f"  Results saved → {out_path}")
     print("=" * 60)
 
 

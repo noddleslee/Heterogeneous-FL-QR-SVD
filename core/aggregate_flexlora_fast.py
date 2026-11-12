@@ -1,14 +1,14 @@
 """
-aggregate_fast.py �� optimised FlexLoRA aggregation (drop-in replacement).
+aggregate_fast.py — optimised FlexLoRA aggregation (drop-in replacement).
 
 Two fixes over aggregate.py::aggregate_flexlora:
   1. _load_adapter(global_model_path) moved before the 196-layer loop
      (original calls it once per layer = 196 disk reads per round).
   2. W_g = B_g_ref @ A_g_ref and its full SVD are computed once per layer;
      each client's projection is obtained by truncating the shared decomposition
-     (original recomputes the same full SVD once per client per layer = 4��).
+     (original recomputes the same full SVD once per client per layer = 4×).
 
-Everything else �� delta-update logic, save format, CLI �� is identical to
+Everything else — delta-update logic, save format, CLI — is identical to
 aggregate.py so run_simulation.py can be pointed at this file with no other
 changes.
 """
@@ -66,7 +66,7 @@ def aggregate_flexlora_fast(
         client_weights = [1.0] * num_clients
     total_w = sum(client_weights)
 
-    # ���� FIX 1: load global reference once, before the layer loop ����
+    # ── FIX 1: load global reference once, before the layer loop ──
     global_ref = None
     if global_model_path and os.path.exists(global_model_path):
         global_ref = _load_adapter(global_model_path)
@@ -81,7 +81,7 @@ def aggregate_flexlora_fast(
             continue
         a_key, b_key = keys["A"], keys["B"]
 
-        # ���� FIX 2: compute W_g and its full SVD once per layer ����
+        # ── FIX 2: compute W_g and its full SVD once per layer ──
         W_g      = None
         U_g      = None
         S_g      = None
@@ -94,7 +94,7 @@ def aggregate_flexlora_fast(
         if has_ref:
             A_g_ref = global_ref[a_key].float().to(DEVICE)
             B_g_ref = global_ref[b_key].float().to(DEVICE)
-            W_g = B_g_ref @ A_g_ref                              # [out, in] �� once
+            W_g = B_g_ref @ A_g_ref                              # [out, in] — once
             U_g, S_g, Vh_g = torch.linalg.svd(W_g, full_matrices=False)  # once
 
         delta_W_sum = None
@@ -142,7 +142,7 @@ def aggregate_flexlora_fast(
         global_sd[a_key] = A_g
         global_sd[b_key] = B_g
 
-    # ���� average non-lora keys normally ����
+    # ── average non-lora keys normally ──
     lora_keys = {k for p in pairs.values() for k in p.values()}
     all_other_keys: set = set()
     for sd in state_dicts:
@@ -181,11 +181,11 @@ def aggregate_flexlora_fast(
     return agg_elapsed
 
 
-# ���� CLI (same interface as aggregate.py) ����������������������������������������������������������������������������
+# ── CLI (same interface as aggregate.py) ──────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Aggregate LoRA adapters �� optimised FlexLoRA + standard modes"
+        description="Aggregate LoRA adapters — optimised FlexLoRA + standard modes"
     )
     parser.add_argument("--client_dirs", nargs="+", required=True)
     parser.add_argument("--output_dir",  type=str,   required=True)

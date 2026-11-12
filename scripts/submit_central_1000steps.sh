@@ -1,7 +1,7 @@
 #!/bin/bash
-# Submit centralized training jobs: 2 batch sizes �� 5 ranks = 10 jobs
-# Batch 64  �� ~3.25 epochs (matches FL optimizer-step count)
-# Batch 256 �� ~13.02 epochs (matches FL total sample views)
+# Submit centralized training jobs: 2 batch sizes × 5 ranks = 10 jobs
+# Batch 64  → ~3.25 epochs (matches FL optimizer-step count)
+# Batch 256 → ~13.02 epochs (matches FL total sample views)
 
 set -e
 
@@ -44,7 +44,7 @@ export UNSLOTH_RETURN_LOGITS=1
 echo "Done: rank=$RANK batch=$BATCH"
 EOF
 
-    echo "Submitted: rank=$RANK batch=$BATCH �� $OUTPUT_DIR"
+    echo "Submitted: rank=$RANK batch=$BATCH → $OUTPUT_DIR"
   done
 done
 

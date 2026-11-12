@@ -7,7 +7,7 @@ so the HETLoRA number is directly comparable to the FlexLoRA / QR-SVD
 results at ranks [8,16,32,64] (rho=120, 186 layers, A100 GPU).
 
 HETLoRA aggregation (EMNLP 2024): Frobenius-norm-weighted average of
-zero-padded LoRA factors. No SVD, but forms the d��d matrix dW = B@A per
+zero-padded LoRA factors. No SVD, but forms the d×d matrix dW = B@A per
 client to compute the Frobenius norm.
 """
 
@@ -18,7 +18,7 @@ import torch
 
 NUM_CLIENTS = 4
 D           = 1024    # hidden dim (Qwen3-0.8B)
-NUM_LAYERS  = 186     # 24 LLM layers: 18 DeltaNet��8 + 6 Attention��7
+NUM_LAYERS  = 186     # 24 LLM layers: 18 DeltaNet×8 + 6 Attention×7
 
 RANK_CONFIGS = [
     [8, 16, 32, 64],   # single point: global_rank=64, rho=120
@@ -29,7 +29,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 def hetlora_agg_layer(B_list, A_list, global_rank):
     """HETLoRA: Frobenius-norm-weighted average of zero-padded factors.
-    Forms d��d dW = B@A per client to compute the norm (no SVD).
+    Forms d×d dW = B@A per client to compute the norm (no SVD).
     B_list : list of [d, r_k] float32 GPU tensors
     A_list : list of [r_k, d] float32 GPU tensors
     """
@@ -37,7 +37,7 @@ def hetlora_agg_layer(B_list, A_list, global_rank):
     d_in  = A_list[0].shape[1]
     r_max = global_rank
 
-    # step 1: per-client Frobenius norm of dW = B@A (forms d��d, no SVD)
+    # step 1: per-client Frobenius norm of dW = B@A (forms d×d, no SVD)
     norms = []
     for B_k, A_k in zip(B_list, A_list):
         dW = B_k @ A_k
@@ -55,7 +55,7 @@ def hetlora_agg_layer(B_list, A_list, global_rank):
     _ = (B_g, A_g)
 
 
-# ���� benchmark ����������������������������������������������������������������������������������������������������������������������������������
+# ── benchmark ─────────────────────────────────────────────────────────────────
 
 def run_benchmark():
     results = {}
@@ -66,7 +66,7 @@ def run_benchmark():
                 if re.search(r"_run(\d+)\.json$", f)]
     run_n = max(existing, default=0) + 1
     out_path = base.replace(".json", f"_run{run_n}.json")
-    print(f"Run {run_n} �� {out_path}")
+    print(f"Run {run_n} → {out_path}")
 
     sync = lambda: torch.cuda.synchronize() if DEVICE == "cuda" else None
 
@@ -76,7 +76,7 @@ def run_benchmark():
         key         = str(global_rank)
         w           = 1.0 / NUM_CLIENTS
         sqrt_w      = math.sqrt(w)
-        print(f"\nranks = {ranks}  global_rank = {global_rank}  �� = {rho}")
+        print(f"\nranks = {ranks}  global_rank = {global_rank}  ρ = {rho}")
 
         # Pre-build GPU tensors once; reuse across all layers (same as
         # benchmark_rank_scaling.py, so timing is directly comparable)
@@ -86,7 +86,7 @@ def run_benchmark():
                   for r in ranks]
         sync()
 
-        # ���� HETLoRA ����������������������������������������������������������������������������������������������������������������������
+        # ── HETLoRA ───────────────────────────────────────────────────────────
         sync()
         t0 = time.time()
         for _ in range(NUM_LAYERS):
@@ -114,7 +114,7 @@ def run_benchmark():
             json.dump({"num_clients": NUM_CLIENTS, "d": D,
                        "num_layers": NUM_LAYERS, "results": results},
                       f, indent=2)
-        print(f"  (saved �� {out_path})")
+        print(f"  (saved → {out_path})")
 
     print(f"\nAll done. Results in {out_path}")
 

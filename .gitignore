@@ -10,7 +10,7 @@ unsloth_compiled_cache/
 *.out
 *.err
 
-# Copyrighted reference papers �� do NOT redistribute
+# Copyrighted reference papers — do NOT redistribute
 docs/*.pdf
 
 # Old centralized-training intermediates

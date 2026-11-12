@@ -6,10 +6,10 @@ Varies rank configuration (doubling each step) to measure how aggregation
 time scales with rank capacity.
 
 Both algorithms use standard formulations, all operations on GPU:
-  FlexLoRA : average client deltas �� single economy SVD  O(d_min^2 * d_max)
-  QR-SVD   : stack factors �� two thin QR �� small core SVD  O((d_out+d_in)*rho^2)
+  FlexLoRA : average client deltas → single economy SVD  O(d_min^2 * d_max)
+  QR-SVD   : stack factors → two thin QR → small core SVD  O((d_out+d_in)*rho^2)
 
-Model: Qwen3.5-9B  (d=4096, 32 LLM layers: 24 DeltaNet��8 + 8 Attention��7 = 248)
+Model: Qwen3.5-9B  (d=4096, 32 LLM layers: 24 DeltaNet×8 + 8 Attention×7 = 248)
 """
 
 import sys, os, time, json, math, re, glob
@@ -19,7 +19,7 @@ import torch
 
 NUM_CLIENTS = 4
 D           = 4096    # hidden dim (Qwen3.5-9B)
-NUM_LAYERS  = 248     # 32 LLM layers: 24 DeltaNet��8 + 8 Attention��7
+NUM_LAYERS  = 248     # 32 LLM layers: 24 DeltaNet×8 + 8 Attention×7
 
 RANK_CONFIGS = [
     [2,   4,   8,   16],
@@ -68,7 +68,7 @@ def qrsvd_agg_layer(B_list, A_list, global_rank):
          (sqrt_S.unsqueeze(1) * Vh_m[:r]) @ Q_A.T)
 
 
-# ���� benchmark ����������������������������������������������������������������������������������������������������������������������������������
+# ── benchmark ─────────────────────────────────────────────────────────────────
 
 def run_benchmark():
     results = {}
@@ -79,7 +79,7 @@ def run_benchmark():
                 if re.search(r"_run(\d+)\.json$", f)]
     run_n = max(existing, default=0) + 1
     out_path = base.replace(".json", f"_run{run_n}.json")
-    print(f"Run {run_n} �� {out_path}")
+    print(f"Run {run_n} → {out_path}")
 
     sync = lambda: torch.cuda.synchronize() if DEVICE == "cuda" else None
 
@@ -89,7 +89,7 @@ def run_benchmark():
         key         = str(global_rank)
         w           = 1.0 / NUM_CLIENTS
         sqrt_w      = math.sqrt(w)
-        print(f"\nranks = {ranks}  global_rank = {global_rank}  �� = {rho}")
+        print(f"\nranks = {ranks}  global_rank = {global_rank}  ρ = {rho}")
 
         # Pre-build scaled GPU tensors once; reuse across all layers
         B_list = [torch.randn(D, r, dtype=torch.float32, device=DEVICE) * sqrt_w
@@ -98,7 +98,7 @@ def run_benchmark():
                   for r in ranks]
         sync()
 
-        # ���� FlexLoRA ��������������������������������������������������������������������������������������������������������������������
+        # ── FlexLoRA ──────────────────────────────────────────────────────────
         sync()
         t0 = time.time()
         for _ in range(NUM_LAYERS):
@@ -106,7 +106,7 @@ def run_benchmark():
         sync()
         t_flex = round(time.time() - t0, 3)
 
-        # ���� QR-SVD ������������������������������������������������������������������������������������������������������������������������
+        # ── QR-SVD ────────────────────────────────────────────────────────────
         sync()
         t0 = time.time()
         for _ in range(NUM_LAYERS):
@@ -142,7 +142,7 @@ def run_benchmark():
             json.dump({"num_clients": NUM_CLIENTS, "d": D,
                        "num_layers": NUM_LAYERS, "results": results},
                       f, indent=2)
-        print(f"  (checkpoint saved �� {out_path})")
+        print(f"  (checkpoint saved → {out_path})")
 
     print(f"\nAll done. Results in {out_path}")
 

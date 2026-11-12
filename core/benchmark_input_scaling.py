@@ -5,8 +5,8 @@ Input-size scaling benchmark: FlexLoRA vs QR-SVD aggregation time.
 Varies hidden dimension d to measure how aggregation time scales with model size.
 
 Both algorithms use standard formulations, all operations on GPU:
-  FlexLoRA : average client deltas �� single economy SVD  O(d_min^2 * d_max)
-  QR-SVD   : stack factors �� two thin QR �� small core SVD  O((d_out+d_in)*rho^2)
+  FlexLoRA : average client deltas → single economy SVD  O(d_min^2 * d_max)
+  QR-SVD   : stack factors → two thin QR → small core SVD  O((d_out+d_in)*rho^2)
 """
 
 import sys, os, time, json, math, re, glob
@@ -17,7 +17,7 @@ import torch
 RANKS       = [4, 8, 16, 32]
 GLOBAL_RANK = max(RANKS)           # = 32
 D_VALUES    = [256, 512, 1024, 2048, 4096]
-NUM_LAYERS  = 186                  # 24 LLM layers: 18 DeltaNet��8 + 6 Attention��7
+NUM_LAYERS  = 186                  # 24 LLM layers: 18 DeltaNet×8 + 6 Attention×7
 NUM_CLIENTS = len(RANKS)
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -68,7 +68,7 @@ def run_benchmark():
                 if re.search(r"_run(\d+)\.json$", f)]
     run_n = max(existing, default=0) + 1
     out_path = base.replace(".json", f"_run{run_n}.json")
-    print(f"Run {run_n} �� {out_path}")
+    print(f"Run {run_n} → {out_path}")
 
     sync = lambda: torch.cuda.synchronize() if DEVICE == "cuda" else None
 
@@ -85,7 +85,7 @@ def run_benchmark():
                   for r in RANKS]
         sync()
 
-        # ���� FlexLoRA ��������������������������������������������������������������������������������������������������������������������
+        # ── FlexLoRA ──────────────────────────────────────────────────────────
         sync()
         t0 = time.time()
         for _ in range(NUM_LAYERS):
@@ -93,7 +93,7 @@ def run_benchmark():
         sync()
         t_flex = round(time.time() - t0, 3)
 
-        # ���� QR-SVD ������������������������������������������������������������������������������������������������������������������������
+        # ── QR-SVD ────────────────────────────────────────────────────────────
         sync()
         t0 = time.time()
         for _ in range(NUM_LAYERS):
@@ -127,7 +127,7 @@ def run_benchmark():
         with open(out_path, "w") as f:
             json.dump({"ranks": RANKS, "global_rank": GLOBAL_RANK,
                        "num_layers": NUM_LAYERS, "results": results}, f, indent=2)
-        print(f"  (checkpoint saved �� {out_path})")
+        print(f"  (checkpoint saved → {out_path})")
 
     print(f"\nAll done. Results in {out_path}")
 
