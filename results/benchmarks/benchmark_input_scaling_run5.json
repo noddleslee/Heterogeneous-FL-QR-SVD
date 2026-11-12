@@ -1,0 +1,107 @@
+{
+  "ranks": [
+    4,
+    8,
+    16,
+    32
+  ],
+  "global_rank": 32,
+  "num_layers": 186,
+  "results": {
+    "256": {
+      "config": {
+        "d": 256,
+        "ranks": [
+          4,
+          8,
+          16,
+          32
+        ],
+        "global_rank": 32,
+        "num_layers": 186,
+        "rho": 60
+      },
+      "flexlora_total_s": 5.831,
+      "flexlora_per_layer_s": 0.0313,
+      "qrsvd_total_s": 0.391,
+      "qrsvd_per_layer_s": 0.0021,
+      "speedup": 14.91
+    },
+    "512": {
+      "config": {
+        "d": 512,
+        "ranks": [
+          4,
+          8,
+          16,
+          32
+        ],
+        "global_rank": 32,
+        "num_layers": 186,
+        "rho": 60
+      },
+      "flexlora_total_s": 12.539,
+      "flexlora_per_layer_s": 0.0674,
+      "qrsvd_total_s": 0.404,
+      "qrsvd_per_layer_s": 0.0022,
+      "speedup": 31.04
+    },
+    "1024": {
+      "config": {
+        "d": 1024,
+        "ranks": [
+          4,
+          8,
+          16,
+          32
+        ],
+        "global_rank": 32,
+        "num_layers": 186,
+        "rho": 60
+      },
+      "flexlora_total_s": 40.903,
+      "flexlora_per_layer_s": 0.2199,
+      "qrsvd_total_s": 0.438,
+      "qrsvd_per_layer_s": 0.0024,
+      "speedup": 93.39
+    },
+    "2048": {
+      "config": {
+        "d": 2048,
+        "ranks": [
+          4,
+          8,
+          16,
+          32
+        ],
+        "global_rank": 32,
+        "num_layers": 186,
+        "rho": 60
+      },
+      "flexlora_total_s": 196.526,
+      "flexlora_per_layer_s": 1.0566,
+      "qrsvd_total_s": 0.435,
+      "qrsvd_per_layer_s": 0.0023,
+      "speedup": 451.78
+    },
+    "4096": {
+      "config": {
+        "d": 4096,
+        "ranks": [
+          4,
+          8,
+          16,
+          32
+        ],
+        "global_rank": 32,
+        "num_layers": 186,
+        "rho": 60
+      },
+      "flexlora_total_s": 1167.556,
+      "flexlora_per_layer_s": 6.2772,
+      "qrsvd_total_s": 0.555,
+      "qrsvd_per_layer_s": 0.003,
+      "speedup": 2103.7
+    }
+  }
+}

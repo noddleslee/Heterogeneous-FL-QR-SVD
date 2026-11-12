@@ -1,5 +1,6 @@
 import os
 import re
+from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -25,12 +26,12 @@ def parse_eval_file(file_path):
 def analyze():
     configs = [
         {
-            'dir': '/mimer/NOBACKUP/groups/bloom/shenghui/hfl/fed_sim_output_bk/',
+            'dir': str(Path(__file__).resolve().parents[1] / 'results' / 'runs' / 'my_fedavg'),
             'type': 'fixed',
             'rounds': ['round_0', 'round_1', 'round_2']
         },
         {
-            'dir': '/mimer/NOBACKUP/groups/bloom/shenghui/hfl/fed_sim_output_flexlora/',
+            'dir': str(Path(__file__).resolve().parents[1] / 'results' / 'runs' / 'my_flexlora'),
             'type': 'flexlora',
             'rounds': ['round_0', 'round_1', 'round_2']
         }
@@ -113,7 +114,7 @@ def analyze():
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     
-    output_dir = '/cephyr/users/shenghui/Alvis/.gemini/antigravity/brain/6da86f67-3585-401a-a039-7327c63a8033/artifacts/'
+    output_dir = str(Path(__file__).resolve().parents[1] / 'results' / 'figures')
     os.makedirs(output_dir, exist_ok=True)
     plot_path = os.path.join(output_dir, 'performance_comparison.png')
     plt.savefig(plot_path, dpi=300)

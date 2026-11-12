@@ -10,7 +10,7 @@ import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
-# ── stub unsloth (requires GPU / custom CUDA kernels, not available in tests) ──
+# ���� stub unsloth (requires GPU / custom CUDA kernels, not available in tests) ����
 # We must set __spec__ on the mock module so that importlib.util.find_spec()
 # (called by trl's import machinery) does not crash with
 # "ValueError: unsloth.__spec__ is not set".
@@ -21,7 +21,8 @@ for _mod_name in _UNSLOTH_MODULES:
         _mock.__spec__ = importlib.machinery.ModuleSpec(_mod_name, None)
         sys.modules[_mod_name] = _mock
 
-# ── make project root importable as a package ──────────────────────────────────
+# ���� make project root importable as a package ��������������������������������������������������������������������
 ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+for directory in (ROOT, ROOT / "core", ROOT / "eval"):
+    if str(directory) not in sys.path:
+        sys.path.insert(0, str(directory))

@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from train_client import _is_yes_no, LazyPathVQADataset
 
 
-# ── _is_yes_no ─────────────────────────────────────────────────────────────────
+# ���� _is_yes_no ����������������������������������������������������������������������������������������������������������������������������������
 
 class TestIsYesNo:
     def test_yes_lowercase(self):
@@ -61,7 +61,7 @@ class TestIsYesNo:
         assert not _is_yes_no("yes please")
 
 
-# ── LazyPathVQADataset prompt formatting ──────────────────────────────────────
+# ���� LazyPathVQADataset prompt formatting ����������������������������������������������������������������������������
 
 class _FakeHFDataset:
     """Minimal stand-in for a HuggingFace Dataset with image support."""

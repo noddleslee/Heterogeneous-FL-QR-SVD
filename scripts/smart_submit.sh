@@ -7,14 +7,14 @@
 # inside the script, so the script itself never needs editing.
 #
 # Examples:
-#   bash smart_submit.sh submit_rank16.sh
-#   bash smart_submit.sh submit_flexlora.sh --time=12:00:00
-#   bash smart_submit.sh submit_hetlora.sh
+#   bash smart_submit.sh scripts/submit_fedavg.sh
+#   bash smart_submit.sh scripts/submit_flex_64_32_16_8_0.8B.sh --time=12:00:00
+#   bash smart_submit.sh scripts/submit_het_64_32_16_8_g099.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON="/mimer/NOBACKUP/groups/bloom/shenghui/miniconda3/envs/visper/bin/python"
+PYTHON="${HFEDLORA_PYTHON:-python}"
 # Fall back to any python3 in PATH if the conda env path is missing
 command -v "$PYTHON" &>/dev/null || PYTHON="python3"
 
@@ -31,15 +31,15 @@ if [[ ! -f "$SCRIPT" ]]; then
     exit 1
 fi
 
-# ── detect how many GPUs the script requests ──────────────────────────────────
+# ���� detect how many GPUs the script requests ��������������������������������������������������������������������
 # Read #SBATCH --gpus-per-node=TYPE:N and extract N (default 2)
 N_GPUS=$(grep -oE '\-\-gpus-per-node=[A-Za-z0-9]+:([0-9]+)' "$SCRIPT" 2>/dev/null \
          | grep -oE '[0-9]+$' | head -1)
 N_GPUS="${N_GPUS:-2}"
 
-# ── pick the GPU type with the most free GPUs ─────────────────────────────────
+# ���� pick the GPU type with the most free GPUs ������������������������������������������������������������������
 # pick_gpu.py prints the winner to stdout and free-count info to stderr
-GPU_TYPE=$("$PYTHON" "$SCRIPT_DIR/pick_gpu.py")
+GPU_TYPE=$("$PYTHON" "$SCRIPT_DIR/../core/pick_gpu.py")
 if [[ -z "$GPU_TYPE" ]]; then
     echo "[smart_submit] GPU detection failed, defaulting to A40" >&2
     GPU_TYPE="A40"

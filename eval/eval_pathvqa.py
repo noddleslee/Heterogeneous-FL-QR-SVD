@@ -38,7 +38,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 warnings.filterwarnings("ignore", message="Truncated File Read")
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
+# ���� helpers ��������������������������������������������������������������������������������������������������������������������������������������
 
 def _normalise(text: str) -> str:
     """Lower-case, strip punctuation/whitespace."""
@@ -65,7 +65,7 @@ def _bleu1(pred: str, ref: str) -> float:
 def _extract_answer(raw: str) -> str:
     """
     Strip thinking tags and extract the actual answer from model output.
-    Qwen3 sometimes wraps reasoning in <think>…</think>.
+    Qwen3 sometimes wraps reasoning in <think>��</think>.
     """
     # Remove thinking block
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
@@ -83,7 +83,7 @@ def _batched(items: list, batch_size: int) -> Iterable[list]:
         yield items[start:start + batch_size]
 
 
-# ── dataset ───────────────────────────────────────────────────────────────────
+# ���� dataset ��������������������������������������������������������������������������������������������������������������������������������������
 
 def load_eval_samples(n_samples: int = None, seed: int = 42, split: str = "test"):
     """
@@ -91,7 +91,7 @@ def load_eval_samples(n_samples: int = None, seed: int = 42, split: str = "test"
     yes/no and open-ended questions. If n_samples is None, use all samples.
     split: "test" (default) or "validation"
     """
-    print(f"Loading PathVQA {split} split …")
+    print(f"Loading PathVQA {split} split ��")
     ds = load_dataset("flaviagiammarino/path-vqa", split=split)
 
     if n_samples is None:
@@ -115,14 +115,14 @@ def load_eval_samples(n_samples: int = None, seed: int = 42, split: str = "test"
     return subset
 
 
-# ── inference ─────────────────────────────────────────────────────────────────
+# ���� inference ����������������������������������������������������������������������������������������������������������������������������������
 
 def build_prompt(sample, yn_question: bool = False):
     """
     Return (image, question_text).
 
     For yes/no questions we append a format instruction so the model is
-    guided to answer concisely — matching training data format and aligning
+    guided to answer concisely �� matching training data format and aligning
     with common practice in PathVQA / MedVQA literature (e.g. LLaVA-Med,
     Med-Flamingo).  Open-ended questions are left unchanged.
     """
@@ -141,7 +141,7 @@ def _yn_logit_score(model, tokenizer, inputs) -> str:
     """
     Logit-based yes/no decision: compare P('yes') vs P('no') at the first
     generated token.  Uses generate(max_new_tokens=1, output_scores=True) so
-    dtype handling is identical to normal generation — avoids the bfloat16/
+    dtype handling is identical to normal generation �� avoids the bfloat16/
     float32 mismatch that occurs with a raw model(**inputs) forward pass.
     """
     # Qwen3VLProcessor wraps a tokenizer; fall back to .tokenizer if needed
@@ -255,13 +255,13 @@ def _run_buckets(model, tokenizer, bucket, batch_size: int, desc: str, batch_fn)
                 if "out of memory" not in str(e).lower() or current_bs == 1:
                     if current_bs == 1:
                         sample_idx, _ = batch[0]
-                        print(f"  Warning: inference failed for sample {sample_idx} — {e}")
+                        print(f"  Warning: inference failed for sample {sample_idx} �� {e}")
                         results[sample_idx] = ""
                         cursor += 1
                         pbar.update(1)
                         continue
                     current_bs = 1
-                    print(f"  Batch failed in {desc}; falling back to per-sample mode — {e}")
+                    print(f"  Batch failed in {desc}; falling back to per-sample mode �� {e}")
                     continue
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
@@ -270,13 +270,13 @@ def _run_buckets(model, tokenizer, bucket, batch_size: int, desc: str, batch_fn)
             except Exception as e:
                 if current_bs == 1:
                     sample_idx, _ = batch[0]
-                    print(f"  Warning: inference failed for sample {sample_idx} — {e}")
+                    print(f"  Warning: inference failed for sample {sample_idx} �� {e}")
                     results[sample_idx] = ""
                     cursor += 1
                     pbar.update(1)
                     continue
                 current_bs = 1
-                print(f"  Batch failed in {desc}; falling back to per-sample mode — {e}")
+                print(f"  Batch failed in {desc}; falling back to per-sample mode �� {e}")
 
     return results
 
@@ -325,7 +325,7 @@ def run_inference(
     return predictions
 
 
-# ── metrics ───────────────────────────────────────────────────────────────────
+# ���� metrics ��������������������������������������������������������������������������������������������������������������������������������������
 
 def compute_metrics(samples, predictions) -> dict:
     yn_correct, yn_total = 0, 0
@@ -369,7 +369,7 @@ def compute_metrics(samples, predictions) -> dict:
     return summary, per_sample
 
 
-# ── main ──────────────────────────────────────────────────────────────────────
+# ���� main ��������������������������������������������������������������������������������������������������������������������������������������������
 
 def main():
     parser = argparse.ArgumentParser()
@@ -391,7 +391,7 @@ def main():
                         help="PathVQA split to evaluate on (default: test)")
     args = parser.parse_args()
 
-    # ── output path ──
+    # ���� output path ����
     if args.output_json is None:
         if args.peft_path:
             args.output_json = os.path.join(
@@ -400,7 +400,7 @@ def main():
         else:
             args.output_json = "pathvqa_eval_base.json"
 
-    # ── load model ──
+    # ���� load model ����
     print(f"\nLoading base model: {args.base_model}")
     model, tokenizer = FastVisionModel.from_pretrained(
         model_name=args.base_model,
@@ -442,14 +442,14 @@ def main():
 
     model.eval()
 
-    # ── load data ──
+    # ���� load data ����
     if args.n_samples is None or args.n_samples.lower() == "none":
         n_samples = None
     else:
         n_samples = int(args.n_samples)
     samples = load_eval_samples(n_samples, split=args.split)
 
-    # ── inference ──
+    # ���� inference ����
     predictions = run_inference(
         model,
         tokenizer,
@@ -459,13 +459,13 @@ def main():
         yn_batch_size=args.yn_batch_size,
     )
 
-    # ── metrics ──
+    # ���� metrics ����
     summary, per_sample = compute_metrics(samples, predictions)
 
     print("\n" + "=" * 60)
     print(f"  PathVQA Evaluation Results")
     print(f"  Base model : {args.base_model}")
-    print(f"  LoRA path  : {args.peft_path or '(none — base model)'}")
+    print(f"  LoRA path  : {args.peft_path or '(none �� base model)'}")
     print("=" * 60)
     print(f"  Yes/No accuracy   : {summary['yn_accuracy']:.4f}  ({summary['yn_total']} samples)")
     print(f"  Open exact match  : {summary['open_exact_match']:.4f}  ({summary['open_total']} samples)")

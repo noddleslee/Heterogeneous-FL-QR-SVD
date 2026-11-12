@@ -1,8 +1,33 @@
-results/*
-unsloth_compiled_cache
-*.out
-*/__pycache__/
+# Python
+__pycache__/
 *.pyc
+*.pyo
+
+# Unsloth compiled cache
+unsloth_compiled_cache/
+
+# SLURM logs
+*.out
+*.err
+
+# Copyrighted reference papers �� do NOT redistribute
+docs/*.pdf
+
+# Old centralized-training intermediates
 centralized_training/1epoch_*
 centralized_training/2epoch_*
 centralized_training/results/*
+
+# Local environments, datasets and training checkpoints
+.venv/
+.pytest_cache/
+.dataset_cache/
+processed_pathvqa/
+.env
+.env.*
+*.safetensors
+*.pt
+*.pth
+logs/
+results/runs/
+checkpoint-*/

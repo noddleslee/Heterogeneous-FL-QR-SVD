@@ -14,11 +14,11 @@ each round boundary.
 
   Round 0 : trains steps 1..steps_per_round,   saves checkpoint-{steps_per_round}
   Round 1 : resumes checkpoint, trains steps steps_per_round+1..2*steps_per_round
-  …
+  ��
 
   FLSFTTrainer overrides two things:
-    create_scheduler  → spans total_rounds * steps_per_round so LR doesn't restart
-    _load_from_checkpoint → no-op for model weights; the caller already loaded the
+    create_scheduler  �� spans total_rounds * steps_per_round so LR doesn't restart
+    _load_from_checkpoint �� no-op for model weights; the caller already loaded the
                             aggregated (+ projected) adapter into the model, so we
                             must not let HuggingFace overwrite it with stale weights.
                             Optimizer / scheduler / dataloader state still resume.
@@ -31,6 +31,7 @@ down to the client's --rank via truncated SVD before local training begins.
 
 import argparse, json, os, shutil, warnings
 from pathlib import Path
+from runtime_config import dataset_cache_dir
 
 import torch
 from aggregate import _svd_to_rank
@@ -44,10 +45,10 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 Image.MAX_IMAGE_PIXELS = None
 warnings.filterwarnings("ignore", message="Truncated File Read")
 
-_CACHE_DIR = "/mimer/NOBACKUP/groups/bloom/shenghui/hfl/.dataset_cache"
+_CACHE_DIR = dataset_cache_dir()
 
 
-# ── dataset helpers ────────────────────────────────────────────────────────────
+# ���� dataset helpers ������������������������������������������������������������������������������������������������������������������������
 
 def _is_valid_image(sample):
     try:
@@ -94,7 +95,7 @@ def load_split(split: str, client_id: int, num_clients: int):
     os.makedirs(_CACHE_DIR, exist_ok=True)
     filter_cache = os.path.join(_CACHE_DIR, f"pathvqa_{split}_f_c{client_id}.arrow")
 
-    print(f"Loading raw PathVQA {split} split …")
+    print(f"Loading raw PathVQA {split} split ��")
     ds = load_dataset("flaviagiammarino/path-vqa", split=split)
 
     ds = ds.shuffle(seed=42).shard(num_shards=num_clients, index=client_id)
@@ -106,7 +107,7 @@ def load_split(split: str, client_id: int, num_clients: int):
     return LazyPathVQADataset(ds)
 
 
-# ── stateful FL trainer ────────────────────────────────────────────────────────
+# ���� stateful FL trainer ����������������������������������������������������������������������������������������������������������������
 
 def _find_latest_checkpoint(ckpt_dir: str) -> str | None:
     """Return path to the highest-numbered checkpoint-N dir, or None."""
@@ -125,7 +126,7 @@ class FLSFTTrainer(SFTTrainer):
     -----------------
     create_scheduler
         Creates the LR schedule for the FULL training horizon
-        (total_rounds × steps_per_round) so the LR curve is continuous
+        (total_rounds �� steps_per_round) so the LR curve is continuous
         across all FL rounds rather than restarting each round.
 
     _load_from_checkpoint
@@ -186,7 +187,7 @@ class FLSFTTrainer(SFTTrainer):
     def create_scheduler(self, num_training_steps: int, optimizer=None):
         total = self.total_rounds * self.steps_per_round
         print(f"  [FLSFTTrainer] scheduler total_steps={total} "
-              f"({self.total_rounds} rounds × {self.steps_per_round} steps/round)")
+              f"({self.total_rounds} rounds �� {self.steps_per_round} steps/round)")
         super().create_scheduler(num_training_steps=total, optimizer=optimizer)
 
     def _load_from_checkpoint(self, resume_from_checkpoint, model=None):
@@ -194,7 +195,7 @@ class FLSFTTrainer(SFTTrainer):
         Skip model-weight loading (correct adapter already loaded by FL loop).
         Restores RNG state for reproducibility. Optimizer and scheduler are
         loaded separately by Trainer._inner_training_loop via
-        _load_optimizer_and_scheduler — this override does NOT affect them.
+        _load_optimizer_and_scheduler �� this override does NOT affect them.
         """
         print(f"  [FLSFTTrainer] Skipping model weights from checkpoint "
               f"(adapter already loaded). Restoring RNG state only.")
@@ -209,7 +210,7 @@ class FLSFTTrainer(SFTTrainer):
                 print(f"  [FLSFTTrainer] Warning: RNG state restore failed: {e}")
 
 
-# ── FlexLoRA helpers ───────────────────────────────────────────────────────────
+# ���� FlexLoRA helpers ����������������������������������������������������������������������������������������������������������������������
 
 def _load_safetensors(path: str) -> dict:
     from safetensors.torch import load_file
@@ -239,11 +240,11 @@ def project_and_load_adapter(global_adapter_dir: str, model, local_rank: int):
     Load the global adapter (possibly at global_rank > local_rank) and
     project it down to local_rank via truncated SVD, then load into model.
 
-    ΔW_global = B_global @ A_global
-    U, S, Vh  = SVD(ΔW_global)
+    ��W_global = B_global @ A_global
+    U, S, Vh  = SVD(��W_global)
     B_local   = U[:, :r] * sqrt(S[:r])   [out, r]
     A_local   = Vh[:r, :] * sqrt(S[:r])  [r, in]
-    → B_local @ A_local ≈ ΔW_global  (best rank-r approximation)
+    �� B_local @ A_local �� ��W_global  (best rank-r approximation)
     """
     from peft import set_peft_model_state_dict
 
@@ -287,17 +288,18 @@ def project_and_load_adapter(global_adapter_dir: str, model, local_rank: int):
 
     incompatible = set_peft_model_state_dict(model, projected)
     _warn_incompatible(incompatible)
-    print(f"  Projected global adapter rank {global_rank} → local rank {local_rank}")
+    print(f"  Projected global adapter rank {global_rank} �� local rank {local_rank}")
+    torch.cuda.empty_cache()
 
 
 def truncate_and_load_adapter(global_adapter_dir: str, model, local_rank: int):
     """
     HetLoRA distribution: truncate global LoRA modules to local rank.
 
-    The global adapter has B ∈ ℝ^{d×r_max}, A ∈ ℝ^{r_max×l}.
+    The global adapter has B �� ?^{d��r_max}, A �� ?^{r_max��l}.
     For a client with rank r_k < r_max, we simply slice:
-      B_local = B[:, :r_k]   →  [d, r_k]
-      A_local = A[:r_k, :]   →  [r_k, l]
+      B_local = B[:, :r_k]   ��  [d, r_k]
+      A_local = A[:r_k, :]   ��  [r_k, l]
 
     This is the truncation-based distribution from the HetLoRA paper,
     NOT the SVD-based projection used in FlexLoRA.
@@ -308,7 +310,7 @@ def truncate_and_load_adapter(global_adapter_dir: str, model, local_rank: int):
     global_sd = _load_safetensors(global_adapter_dir)
 
     if local_rank >= global_rank:
-        # No truncation needed — load directly
+        # No truncation needed �� load directly
         incompatible = set_peft_model_state_dict(model, global_sd)
         _warn_incompatible(incompatible)
         print(f"  HetLoRA: loaded global adapter (rank={global_rank}) without truncation")
@@ -321,19 +323,19 @@ def truncate_and_load_adapter(global_adapter_dir: str, model, local_rank: int):
                 raise ValueError(
                     f"Cannot truncate {k}: stored rank {v.shape[0]} < local_rank {local_rank}"
                 )
-            truncated[k] = v[:local_rank, :]   # [r_max, in] → [r_k, in]
+            truncated[k] = v[:local_rank, :]   # [r_max, in] �� [r_k, in]
         elif ".lora_B.weight" in k:
             if v.shape[1] < local_rank:
                 raise ValueError(
                     f"Cannot truncate {k}: stored rank {v.shape[1]} < local_rank {local_rank}"
                 )
-            truncated[k] = v[:, :local_rank]   # [out, r_max] → [out, r_k]
+            truncated[k] = v[:, :local_rank]   # [out, r_max] �� [out, r_k]
         else:
             truncated[k] = v
 
     incompatible = set_peft_model_state_dict(model, truncated)
     _warn_incompatible(incompatible)
-    print(f"  HetLoRA: truncated global adapter rank {global_rank} → local rank {local_rank}")
+    print(f"  HetLoRA: truncated global adapter rank {global_rank} �� local rank {local_rank}")
 
 
 def _warn_incompatible(result):
@@ -342,12 +344,12 @@ def _warn_incompatible(result):
     unexpected = getattr(result, "unexpected_keys", [])
     missing   = getattr(result, "missing_keys",    [])
     if unexpected:
-        print(f"  Warning: unexpected adapter keys: {unexpected[:3]}{'…' if len(unexpected) > 3 else ''}")
+        print(f"  Warning: unexpected adapter keys: {unexpected[:3]}{'��' if len(unexpected) > 3 else ''}")
     if missing:
-        print(f"  Warning: missing adapter keys: {missing[:3]}{'…' if len(missing) > 3 else ''}")
+        print(f"  Warning: missing adapter keys: {missing[:3]}{'��' if len(missing) > 3 else ''}")
 
 
-# ── main ───────────────────────────────────────────────────────────────────────
+# ���� main ����������������������������������������������������������������������������������������������������������������������������������������������
 
 def main():
     parser = argparse.ArgumentParser()
@@ -373,6 +375,8 @@ def main():
     parser.add_argument("--max_steps",    type=int, default=-1,
                         help="Steps per FL round (>0 enables stateful training). "
                              "-1 = full-epoch mode (legacy, no state persistence).")
+    parser.add_argument("--batch_size",  type=int, default=64,
+                        help="Per-device train batch size (gradient_accumulation auto-set to keep effective batch=64)")
     # HetLoRA
     parser.add_argument("--hetlora",     action="store_true")
     parser.add_argument("--het_lambda",  type=float, default=0.01)
@@ -384,23 +388,24 @@ def main():
         args.global_rank = args.rank
 
     stateful = args.max_steps > 0
+    grad_accum = max(1, 64 // args.batch_size)
 
-    # ── directories ──
-    # Persistent checkpoint dir — optimizer/scheduler/dataloader state across rounds
+    # ���� directories ����
+    # Persistent checkpoint dir �� optimizer/scheduler/dataloader state across rounds
     client_ckpt_dir = os.path.join(args.output_dir, f"client_{args.client_id}_ckpt")
     os.makedirs(client_ckpt_dir, exist_ok=True)
 
-    # Per-round adapter output — contains only the adapter for aggregation
+    # Per-round adapter output �� contains only the adapter for aggregation
     client_output_dir = os.path.join(
         args.output_dir, f"round_{args.round}", f"client_{args.client_id}"
     )
     os.makedirs(client_output_dir, exist_ok=True)
 
-    # ── load data ──
+    # ���� load data ����
     train_ds = load_split("train",      args.client_id, args.num_clients)
     val_ds   = load_split("validation", args.client_id, args.num_clients)
 
-    # ── load base model ──
+    # ���� load base model ����
     print(f"\n[Client {args.client_id}] Loading model: {args.base_model}  "
           f"(local_rank={args.rank})")
     model, tokenizer = FastVisionModel.from_pretrained(
@@ -422,7 +427,7 @@ def main():
         random_state=3407,
     )
 
-    # ── load global adapter (aggregated from previous round) ──
+    # ���� load global adapter (aggregated from previous round) ����
     if args.round > 0:
         adapter_path = (
             args.global_model_path
@@ -441,7 +446,7 @@ def main():
             set_peft_model_state_dict(model, weights)
             print(f"  Loaded global adapter directly (rank={args.rank})")
 
-    # ── [HetLoRA] store initial norm for pruning decision ──
+    # ���� [HetLoRA] store initial norm for pruning decision ����
     initial_norms = {}
     if args.hetlora:
         r_prune_start = int(args.rank * args.het_gamma)
@@ -461,7 +466,7 @@ def main():
 
     model.print_trainable_parameters()
 
-    # ── configure trainer ──
+    # ���� configure trainer ����
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":8192:8"
     os.environ["UNSLOTH_RETURN_LOGITS"]   = "1"
 
@@ -471,8 +476,8 @@ def main():
         abs_max_steps = (args.round + 1) * args.max_steps
         sft_args = SFTConfig(
             output_dir=client_ckpt_dir,
-            per_device_train_batch_size=16,
-            gradient_accumulation_steps=1,
+            per_device_train_batch_size=args.batch_size,
+            gradient_accumulation_steps=grad_accum,
             per_device_eval_batch_size=8,
             eval_strategy="no",
             # Save a full checkpoint (optimizer+scheduler+dataloader) at the
@@ -493,6 +498,7 @@ def main():
             dataset_kwargs={"skip_prepare_dataset": True},
             dataloader_num_workers=4,
             dataloader_pin_memory=True,
+            dataloader_prefetch_factor=4,
             remove_unused_columns=False,
         )
         trainer = FLSFTTrainer(
@@ -514,14 +520,14 @@ def main():
         if resume_ckpt:
             print(f"[Client {args.client_id}] Resuming trainer state from {resume_ckpt}")
         elif args.round > 0:
-            print(f"[Client {args.client_id}] Warning: round>0 but no checkpoint found — "
+            print(f"[Client {args.client_id}] Warning: round>0 but no checkpoint found �� "
                   f"starting fresh (optimizer/scheduler will reset)")
     else:
         # Legacy: full-epoch mode, no state persistence
         sft_args = SFTConfig(
             output_dir=client_output_dir,
-            per_device_train_batch_size=16,
-            gradient_accumulation_steps=1,
+            per_device_train_batch_size=args.batch_size,
+            gradient_accumulation_steps=grad_accum,
             per_device_eval_batch_size=8,
             num_train_epochs=args.epochs,
             eval_strategy="no",
@@ -539,6 +545,7 @@ def main():
             dataset_kwargs={"skip_prepare_dataset": True},
             dataloader_num_workers=4,
             dataloader_pin_memory=True,
+            dataloader_prefetch_factor=4,
             remove_unused_columns=False,
         )
         trainer = SFTTrainer(
@@ -551,11 +558,11 @@ def main():
         )
         resume_ckpt = None
 
-    # ── train ──
-    print(f"\n[Client {args.client_id}] Starting round {args.round} training …")
+    # ���� train ����
+    print(f"\n[Client {args.client_id}] Starting round {args.round} training ��")
     trainer.train(resume_from_checkpoint=resume_ckpt)
 
-    # ── [HetLoRA] rank self-pruning ──
+    # ���� [HetLoRA] rank self-pruning ����
     final_rank = args.rank
     if args.hetlora:
         total_initial = sum(info["norm_sq"] for info in initial_norms.values())
@@ -573,7 +580,7 @@ def main():
 
         print(f"[Client {args.client_id}] HetLoRA: last ranks norm {total_initial:.6f} -> {total_final:.6f}")
         if total_final < total_initial:
-            final_rank = r_prune_start
+            final_rank = max(1, r_prune_start)
             print(f"[Client {args.client_id}] HetLoRA: Pruning ranks {r_prune_start} to {args.rank} (New Rank: {final_rank})")
         else:
             print(f"[Client {args.client_id}] HetLoRA: No pruning (norms increased). Keeping rank={args.rank}")
@@ -606,10 +613,25 @@ def main():
     else:
         model.save_pretrained(client_output_dir)
 
+    # Save per-round training metrics for aggregation in results.json
+    loss_curve = [
+        {"step": e["step"], "loss": e["loss"]}
+        for e in trainer.state.log_history
+        if "loss" in e and "eval_loss" not in e
+    ]
+    client_metrics = {
+        "client_id": args.client_id,
+        "round":     args.round,
+        "rank":      final_rank,
+        "loss_curve": loss_curve,
+    }
+    with open(os.path.join(client_output_dir, "client_metrics.json"), "w") as f:
+        json.dump(client_metrics, f, indent=2)
+
     print(f"[Client {args.client_id}] Training done. "
           f"Adapter (rank={final_rank}) saved to {client_output_dir}")
 
-    # ── [HetLoRA] persist pruned rank for future rounds ──
+    # ���� [HetLoRA] persist pruned rank for future rounds ����
     if args.hetlora:
         rank_file = os.path.join(args.output_dir, f"client_{args.client_id}_rank.json")
         with open(rank_file, "w") as f:

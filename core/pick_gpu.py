@@ -41,11 +41,11 @@ def count_free(candidates=CANDIDATES):
             continue
 
         for gpu_type in candidates:
-            # Total GPUs on this node — gres column has (S:...) notation
+            # Total GPUs on this node �� gres column has (S:...) notation
             m_total = re.search(
                 rf"gpu:{gpu_type}:(\d+)\(S:", line, re.IGNORECASE
             )
-            # Used GPUs — gresused column has (IDX:...) notation
+            # Used GPUs �� gresused column has (IDX:...) notation
             m_used = re.search(
                 rf"gpu:{gpu_type}:(\d+)\(IDX:", line, re.IGNORECASE
             )
@@ -73,7 +73,7 @@ if __name__ == "__main__":
           file=sys.stderr)
 
     if not any(free.values()):
-        print("[pick_gpu] No free GPUs detected — falling back to A40",
+        print("[pick_gpu] No free GPUs detected �� falling back to A40",
               file=sys.stderr)
         print("A40")
         sys.exit(0)

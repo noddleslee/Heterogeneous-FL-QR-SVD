@@ -1,0 +1,153 @@
+{
+  "base_ranks": [
+    8,
+    16,
+    32,
+    64
+  ],
+  "global_rank": 64,
+  "d": 5120,
+  "num_layers": 496,
+  "results": {
+    "4": {
+      "config": {
+        "num_clients": 4,
+        "ranks": [
+          8,
+          16,
+          32,
+          64
+        ],
+        "global_rank": 64,
+        "d": 5120,
+        "num_layers": 496,
+        "rho": 120
+      },
+      "flexlora_total_s": 5877.805,
+      "flexlora_per_layer_s": 11.8504,
+      "qrsvd_total_s": 3.297,
+      "qrsvd_per_layer_s": 0.0066,
+      "speedup": 1782.77
+    },
+    "8": {
+      "config": {
+        "num_clients": 8,
+        "ranks": [
+          8,
+          16,
+          32,
+          64,
+          8,
+          16,
+          32,
+          64
+        ],
+        "global_rank": 64,
+        "d": 5120,
+        "num_layers": 496,
+        "rho": 240
+      },
+      "flexlora_total_s": 6085.801,
+      "flexlora_per_layer_s": 12.2698,
+      "qrsvd_total_s": 7.711,
+      "qrsvd_per_layer_s": 0.0155,
+      "speedup": 789.24
+    },
+    "12": {
+      "config": {
+        "num_clients": 12,
+        "ranks": [
+          8,
+          16,
+          32,
+          64,
+          8,
+          16,
+          32,
+          64,
+          8,
+          16,
+          32,
+          64
+        ],
+        "global_rank": 64,
+        "d": 5120,
+        "num_layers": 496,
+        "rho": 360
+      },
+      "flexlora_total_s": 6248.495,
+      "flexlora_per_layer_s": 12.5978,
+      "qrsvd_total_s": 13.007,
+      "qrsvd_per_layer_s": 0.0262,
+      "speedup": 480.39
+    },
+    "16": {
+      "config": {
+        "num_clients": 16,
+        "ranks": [
+          8,
+          16,
+          32,
+          64,
+          8,
+          16,
+          32,
+          64,
+          8,
+          16,
+          32,
+          64,
+          8,
+          16,
+          32,
+          64
+        ],
+        "global_rank": 64,
+        "d": 5120,
+        "num_layers": 496,
+        "rho": 480
+      },
+      "flexlora_total_s": 5788.14,
+      "flexlora_per_layer_s": 11.6696,
+      "qrsvd_total_s": 18.347,
+      "qrsvd_per_layer_s": 0.037,
+      "speedup": 315.48
+    },
+    "20": {
+      "config": {
+        "num_clients": 20,
+        "ranks": [
+          8,
+          16,
+          32,
+          64,
+          8,
+          16,
+          32,
+          64,
+          8,
+          16,
+          32,
+          64,
+          8,
+          16,
+          32,
+          64,
+          8,
+          16,
+          32,
+          64
+        ],
+        "global_rank": 64,
+        "d": 5120,
+        "num_layers": 496,
+        "rho": 600
+      },
+      "flexlora_total_s": 5882.658,
+      "flexlora_per_layer_s": 11.8602,
+      "qrsvd_total_s": 25.784,
+      "qrsvd_per_layer_s": 0.052,
+      "speedup": 228.15
+    }
+  }
+}
