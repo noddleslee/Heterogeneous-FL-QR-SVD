@@ -70,7 +70,7 @@ The four hospitals have different computing and GPU memory budgets, so they use 
 
 <div align="justify">
 
-**FlexLoRA** reconstructs full-size weight updates, averages them, and applies SVD to obtain adapters at each client’s rank. However, SVD on these large matrices is expensive: our four-client aggregation benchmark takes **42.52 seconds per round** on an NVIDIA A100 GPU (Table 5.5).
+**FlexLoRA** reconstructs full-size weight updates, averages them, and applies SVD to obtain adapters at each client’s rank. However, SVD on these large matrices is expensive: our four-client aggregation benchmark takes **42.52 seconds per round** on an NVIDIA A100 GPU.
 
 </div>
 
