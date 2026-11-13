@@ -26,14 +26,14 @@
 
 </div>
 
-** Dataset.**
+## Use case and experimental setting
+
+## Dataset.
 <div align="justify">
 
 We use [PathVQA](https://huggingface.co/datasets/flaviagiammarino/path-vqa), a pathology visual question-answering dataset. Each sample contains an image, a question and its answer.
 
 </div>
-
-## Use case and experimental setting
 
 <div align="justify">
 
