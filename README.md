@@ -1,14 +1,78 @@
-# QR-SVD for Heterogeneous Federated LoRA
+# Master's Thesis: Heterogeneous Federated Fine-Tuning of Foundation Models
 
 <div align="justify">
 
-Efficient server aggregation for federated fine-tuning when clients use different LoRA ranks. QR-SVD reformulates FlexLoRA to avoid reconstructing and decomposing full weight-update matrices.
+**Thesis:** [Read the PDF on DiVA](https://uu.diva-portal.org/smash/get/diva2:2108786/FULLTEXT01.pdf)
+
+</div>
+
+## Background
+
+<div align="justify">
+
+**Federated learning (FL).** Instead of uploading large raw datasets to the cloud, FL allows institutions to train a shared model while keeping data local. This helps protect privacy, can save upload bandwidth, and supports edge deployments with local, real-time inference.
 
 </div>
 
 <div align="justify">
 
-**Master's thesis:** [Heterogeneous Federated Fine-Tuning of Foundation Models (PDF)](https://uu.diva-portal.org/smash/get/diva2:2108786/FULLTEXT01.pdf)
+**LLM/VLM fine-tuning.** Large language models can be adapted to domain-specific tasks through fine-tuning. In this thesis, we use [Qwen3.5-0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B), a vision-language model with approximately 0.8 billion parameters.
+
+</div>
+
+<div align="justify">
+
+**LoRA (Low-Rank Adaptation).** Updating all model parameters requires substantial GPU memory. LoRA is a parameter-efficient fine-tuning (PEFT) method that freezes the base model and learns updates through two small trainable matrices. Their inner dimension, **rank $r$**, controls adaptation capacity: higher ranks allow more flexible updates but require more trainable parameters, memory and communication. In our Qwen3.5-0.8B configuration, ranks of **8–64** correspond to **6.6M–52.7M trainable parameters**, or **0.8%–6.2%** of the full model’s **847M parameters**.
+
+</div>
+
+## Dataset
+
+<div align="justify">
+
+We use [PathVQA](https://huggingface.co/datasets/flaviagiammarino/path-vqa), a pathology visual question-answering dataset. Each sample contains an image, a question and its answer.
+
+</div>
+
+## Use case and experimental setting
+
+<div align="justify">
+
+We consider four hospitals, each holding local pathology images and question–answer pairs. Regulatory constraints prevent them from sharing their raw data. Instead of each hospital fine-tuning its own model, they use **federated fine-tuning** to train a shared model while keeping data local.
+
+</div>
+
+<div align="justify">
+
+The hospitals have different computing and GPU memory budgets, so they use different LoRA ranks: **64, 32, 16 and 8**. In our experiments, this setting is simulated using four clients with local partitions of PathVQA.
+
+</div>
+
+![Four simulated hospital clients with local data and different LoRA ranks; green arrows upload adapters and blue arrows download the global adapter](assets/04_hospital_federated_setup.png)
+
+## How do we aggregate LoRA updates with different ranks?
+
+<div align="justify">
+
+The four hospitals have different computing and GPU memory budgets, so they use different LoRA ranks to control adaptation capacity and the number of trainable parameters. However, different ranks produce parameter matrices with different shapes—how can the server aggregate them?
+
+</div>
+
+<div align="justify">
+
+**FedAvg** assumes the same LoRA rank across clients, making it suitable for a uniform-rank setting but unable to directly aggregate the different-shaped parameters in our hospital scenario.
+
+</div>
+
+<div align="justify">
+
+**HETLoRA** uses zero-padding to align parameter shapes for aggregation and local rank self-pruning to reduce adapter size.
+
+</div>
+
+<div align="justify">
+
+**FlexLoRA** reconstructs full-size weight updates, averages them, and applies SVD to obtain adapters at each client’s rank. However, SVD on these large matrices is expensive: our four-client aggregation benchmark takes **42.52 seconds per round** on an NVIDIA A100 GPU (Table 5.5).
 
 </div>
 
@@ -16,7 +80,13 @@ Efficient server aggregation for federated fine-tuning when clients use differen
 
 <div align="justify">
 
-QR-SVD is a server-side aggregation method proposed in this thesis for federated fine-tuning with heterogeneous LoRA ranks. FlexLoRA reconstructs and averages the client weight updates into a full $d_{\mathrm{out}}\times d_{\mathrm{in}}$ matrix, then performs SVD on this full matrix and truncates the result to the target rank. Here, $d_{\mathrm{out}}$ and $d_{\mathrm{in}}$ are the output and input dimensions of the adapted weight matrix.
+To reduce the cost of FlexLoRA’s full-matrix SVD, we propose **QR-SVD**, the aggregation method developed in this thesis.
+
+</div>
+
+<div align="justify">
+
+FlexLoRA reconstructs and averages the client weight updates into a full $d_{\mathrm{out}}\times d_{\mathrm{in}}$ matrix, then performs SVD on this full matrix and truncates the result to the target rank. Here, $d_{\mathrm{out}}$ and $d_{\mathrm{in}}$ are the output and input dimensions of the adapted weight matrix.
 
 </div>
 
