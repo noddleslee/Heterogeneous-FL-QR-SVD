@@ -10,7 +10,7 @@
 
 <div align="justify">
 
-**Federated learning (FL).** Instead of uploading large raw datasets to the cloud, FL allows institutions to train a shared model while keeping data local. This helps protect privacy, can save upload bandwidth, and supports edge deployments with local, real-time inference.
+**Federated learning (FL).** Instead of uploading large raw datasets to the cloud, FL allows institutions to train a shared model while keeping data local. This helps protect privacy, saves upload bandwidth, and supports edge deployments with local, real-time inference.
 
 </div>
 
