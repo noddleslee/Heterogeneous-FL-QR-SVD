@@ -52,7 +52,7 @@ The hospitals have different computing and GPU memory budgets, so they use diffe
 
 <div align="justify">
 
-The four hospitals have different computing and GPU memory budgets, so they use different LoRA ranks to control adaptation capacity and the number of trainable parameters. However, different ranks produce parameter matrices with different shapes—how can the server aggregate them?
+The four hospitals have different computing and GPU memory budgets, so they use different LoRA ranks to control adaptation capacity and the number of trainable parameters. However, different ranks produce parameter matrices with different shapes, how can the server aggregate them?
 
 </div>
 
