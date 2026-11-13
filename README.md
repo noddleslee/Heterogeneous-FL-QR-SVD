@@ -84,13 +84,13 @@ To reduce the cost of FlexLoRA’s full-matrix SVD, we propose **QR-SVD**, the a
 
 <div align="justify">
 
-FlexLoRA reconstructs and averages the client weight updates into a full $d_{\mathrm{out}}\times d_{\mathrm{in}}$ matrix, then performs SVD on this full matrix and truncates the result to the target rank. Here, $d_{\mathrm{out}}$ and $d_{\mathrm{in}}$ are the output and input dimensions of the adapted weight matrix.
+Instead of applying SVD to FlexLoRA’s full $d_{\mathrm{out}}\times d_{\mathrm{in}}$ update matrix, **QR-SVD** stacks the weighted low-rank factors, performs two thin QR decompositions, and applies SVD to a $\rho\times\rho$ core matrix. Mapping the singular vectors back yields a numerically equivalent rank-truncated update without explicitly forming the full weight-update matrix.
 
 </div>
 
 <div align="justify">
 
-QR-SVD instead stacks the weighted low-rank factors, performs two thin QR decompositions, and applies SVD to a $\rho\times\rho$ core matrix. Mapping the singular vectors back to the original dimensions produces a numerically equivalent rank-constrained update without explicitly forming the full weight-update matrix. Local training follows FlexLoRA.
+Here, $d_{\mathrm{out}}$ and $d_{\mathrm{in}}$ denote the output and input dimensions of the adapted weight matrix.
 
 </div>
 
@@ -114,7 +114,7 @@ For example, with $\rho=120$ and $d_{\mathrm{out}}=d_{\mathrm{in}}=1024$, the co
 
 <div align="justify">
 
-Method: thesis §3.3–3.3.1. Left workflow: Figure 2 of [Bai et al., NeurIPS 2024](https://proceedings.neurips.cc/paper_files/paper/2024/hash/1a134b50202088aa8c595cc99b310e5a-Abstract-Conference.html); the right panel highlights the QR-SVD reformulation.
+Method: thesis §3.3–3.3.1. Left workflow: Figure 2 of [Bai et al., NeurIPS 2024](https://proceedings.neurips.cc/paper_files/paper/2024/hash/1a134b50202088aa8c595cc99b310e5a-Abstract-Conference.html); the right panel highlights the QR-SVD reformulation. Local training follows FlexLoRA.
 
 </div>
 
