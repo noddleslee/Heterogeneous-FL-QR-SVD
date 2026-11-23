@@ -11,7 +11,7 @@
 - [Background](#background)
 - [Use case and experimental setting](#use-case-and-experimental-setting)
 - [How do we aggregate LoRA updates with different ranks?](#how-do-we-aggregate-lora-updates-with-different-ranks)
-- [QR-SVD: The efficient aggregation of FlexLoRA](#the-efficient-aggregation-of-flexlora)
+- [QR-SVD: The efficient aggregation of FlexLoRA](#qr-svd-the-efficient-aggregation-of-flexlora)
   - [What is QR-SVD?](#what-is-qr-svd)
   - [Does it change the result?](#does-it-change-the-result)
   - [How much faster?](#how-much-faster)
@@ -135,23 +135,7 @@ Source: thesis Table 5.5. Qwen3.5-0.8B on PathVQA validation (6,259 samples); fe
 
 ![Theoretical cost per step: FlexLoRA is dominated by the full-matrix SVD, Theta of d cubed; QR-SVD is dominated by the two thin QRs, Theta of d rho squared; the ratio is Theta of d over rho, squared](assets/08_cost_breakdown_theory.png)
 
-<div align="justify">
-
-**In theory** the gain grows as $(d/\rho)^2$ (thesis Eq. 3.5). **Measured** on one A100 with $\rho=120$:
-
-</div>
-
-| Model-size proxy | Adapted matrices | FlexLoRA | QR-SVD | Speedup |
-|---|---:|---:|---:|---:|
-| Qwen3.5-0.8B ($d=1024$) | 186 | 42.52 s | 0.923 s | **46×** |
-| Qwen3.5-9B ($d=4096$) | 248 | 1727 s | 1.617 s | **1068×** |
-| Qwen3.5-27B ($d=5120$) | 496 | 5861 s (≈ 98 min) | 3.268 s | **1793×** |
-
-<div align="justify">
-
-Server-side aggregation time per round, mean of five runs (thesis Table 5.3).
-
-</div>
+Aggregation time per round on one A100 ($\rho=120$): **0.8B** 42.5 s → 0.9 s · **9B** ≈ 29 min → 1.6 s · **27B** ≈ 98 min → 3.3 s (thesis Table 5.3).
 
 ### When does it help?
 
