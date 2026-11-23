@@ -66,7 +66,7 @@ The four hospitals have different computing and GPU memory budgets, so they use 
 
 <div align="justify">
 
-Left: Figure 2 of [Bai et al., NeurIPS 2024](https://proceedings.neurips.cc/paper_files/paper/2024/hash/1a134b50202088aa8c595cc99b310e5a-Abstract-Conference.html), reproduced with permission.
+Left: Figure 2 of [Bai et al., NeurIPS 2024](https://proceedings.neurips.cc/paper_files/paper/2024/hash/1a134b50202088aa8c595cc99b310e5a-Abstract-Conference.html).
 
 </div>
 
