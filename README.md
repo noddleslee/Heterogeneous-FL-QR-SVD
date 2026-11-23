@@ -133,13 +133,13 @@ Source: thesis Table 5.5. Qwen3.5-0.8B on PathVQA validation (6,259 samples); fe
 
 ### How much faster?
 
-![Theoretical cost per step: FlexLoRA is dominated by the full-matrix SVD, Theta of d cubed; QR-SVD is dominated by the two thin QRs, Theta of d rho squared; the ratio is Theta of d over rho, squared](assets/08_cost_breakdown_theory_v2.png)
+![Theoretical cost per step: FlexLoRA is dominated by the full-matrix SVD, Theta of d cubed; QR-SVD is dominated by the two thin QRs, Theta of d rho squared; the ratio is Theta of d over rho, squared](assets/08_cost_breakdown_theory_v3.png)
 
 Aggregation time per round on one A100 ($\rho=120$): **0.8B** 42.5 s → 0.9 s · **9B** ≈ 29 min → 1.6 s · **27B** ≈ 98 min → 3.3 s (thesis Table 5.3).
 
 ### When does it help?
 
-![QR-SVD aggregation speedup across client counts for three model proxy workloads](assets/03_when_qrsvd_helps_v3.png)
+![QR-SVD aggregation speedup across client counts for three model proxy workloads](assets/03_when_qrsvd_helps_v4.png)
 
 - **Larger models gain more:** the speedup grows with $d$.
 - **More clients or higher ranks gain less:** as $\rho$ approaches $d$, the gain shrinks (0.8B: 46× at 4 clients, 5× at 20; thesis Table 5.4).
