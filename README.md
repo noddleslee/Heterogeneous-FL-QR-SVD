@@ -94,8 +94,8 @@ $$
 
 $$
 P=Q_P R_P,\quad Q^{\top}=Q_Q R_Q
-\;\Longrightarrow\;
-W_g = Q_P\,\underbrace{R_P R_Q^{\top}}_{M\,\in\,\mathbb{R}^{\rho\times\rho}}\,Q_Q^{\top}.
+\quad\Longrightarrow\quad
+W_g = Q_P\ \underbrace{R_P R_Q^{\top}}_{M\in\mathbb{R}^{\rho\times\rho}}\ Q_Q^{\top}.
 $$
 
 **③ SVD of the core only:** $M=U_M\Sigma_M V_M^{\top}$.
@@ -103,8 +103,8 @@ $$
 **④ Map back and truncate.** $Q_P U_M$ and $Q_Q V_M$ are the singular vectors of $W_g$, so keeping the top $r_g$ gives the same truncated update as FlexLoRA, up to floating-point error:
 
 $$
-B_g=Q_P U_M[:,:r_g]\,\Sigma_M[:r_g]^{1/2},\qquad
-A_g=\Sigma_M[:r_g]^{1/2}\,\big(Q_Q V_M[:,:r_g]\big)^{\top}.
+B_g=Q_P U_M[:,:r_g]\ \Sigma_M[:r_g]^{1/2},\qquad
+A_g=\Sigma_M[:r_g]^{1/2}\ \big(Q_Q V_M[:,:r_g]\big)^{\top}.
 $$
 
 <div align="justify">
