@@ -6,6 +6,18 @@
 
 </div>
 
+**Contents**
+
+- [Background](#background)
+- [Use case and experimental setting](#use-case-and-experimental-setting)
+- [How do we aggregate LoRA updates with different ranks?](#how-do-we-aggregate-lora-updates-with-different-ranks)
+- [The efficient aggregation of FlexLoRA](#the-efficient-aggregation-of-flexlora)
+  - [What is QR-SVD?](#what-is-qr-svd)
+  - [Does it change the result?](#does-it-change-the-result)
+  - [How much faster?](#how-much-faster)
+  - [When does it help?](#when-does-it-help)
+- [Scope and limitations](#scope-and-limitations)
+
 ## Background
 
 <div align="justify">
@@ -62,7 +74,7 @@ The four hospitals have different computing and GPU memory budgets, so they use 
 | **HETLoRA** | ✓ | Zero-pads factors to a common rank and averages $B$ and $A$ separately; clients self-prune their rank | Averaging factors is not averaging updates: $\sum_k w_k B_k A_k \neq (\sum_k w_k B_k)(\sum_k w_k A_k)$; sensitive to the pruning parameter $\gamma$ |
 | **FlexLoRA** | ✓ | Rebuilds each full update $B_k A_k$, averages, then truncates with an SVD | The full-matrix SVD is expensive: **42.52 s per round** on an NVIDIA A100 |
 
-![FlexLoRA workflow (Figure 2 of Bai et al.) next to its four server steps; step 3, the full-matrix SVD, is highlighted as the bottleneck](assets/05_flexlora_bottleneck.png)
+![FlexLoRA workflow (Figure 2 of Bai et al.) next to its four server steps; step 3, the full-matrix SVD, is highlighted as the bottleneck](assets/05_flexlora_bottleneck_v2.png)
 
 <div align="justify">
 
@@ -70,7 +82,9 @@ Left: Figure 2 of [Bai et al., NeurIPS 2024](https://proceedings.neurips.cc/pape
 
 </div>
 
-## What is QR-SVD?
+## The efficient aggregation of FlexLoRA
+
+### What is QR-SVD?
 
 <div align="justify">
 
@@ -78,7 +92,7 @@ Left: Figure 2 of [Bai et al., NeurIPS 2024](https://proceedings.neurips.cc/pape
 
 </div>
 
-![QR-SVD: the FlexLoRA workflow with the client parts greyed out as unchanged and the server part replaced by QR-SVD (no full-size W, SVD on a rho-by-rho core), next to the four aggregation steps](assets/06_qrsvd_workflow.png)
+![QR-SVD: the FlexLoRA workflow with the client parts greyed out as unchanged and the server part replaced by QR-SVD (no full-size W, SVD on a rho-by-rho core), next to the four aggregation steps](assets/06_qrsvd_workflow_v2.png)
 
 <div align="justify">
 
@@ -93,13 +107,16 @@ Left: adapted from Figure 2 of [Bai et al., NeurIPS 2024](https://proceedings.ne
 
 </details>
 
-## Does QR-SVD preserve model accuracy?
+### Does it change the result?
 
 <div align="justify">
 
-**The evaluated runs achieve similar accuracy:** QR-SVD reaches **59.00%**, compared with FlexLoRA's **59.10%**, a difference of **0.10 percentage points**.
+**No, up to floating-point error.** One aggregation step returns the same rank-$r_g$ truncated update as FlexLoRA (thesis §5.4.1). In the evaluated runs, QR-SVD reaches **59.00%** and FlexLoRA **59.10%** (single seed).
 
 </div>
+
+<details>
+<summary><b>All methods compared</b></summary>
 
 | Method | LoRA rank configuration | Final validation accuracy |
 |---|---|---:|
@@ -110,66 +127,49 @@ Left: adapted from Figure 2 of [Bai et al., NeurIPS 2024](https://proceedings.ne
 | FlexLoRA | [64, 32, 16, 8] | 59.10% |
 | **QR-SVD** | **[64, 32, 16, 8]** | **59.00%** |
 
-<div align="justify">
+Source: thesis Table 5.5. Qwen3.5-0.8B on PathVQA validation (6,259 samples); federated scores are at round 9. Centralized r = 32 uses 1,000 steps with batch 256.
 
-Source: thesis Table 5.5. Qwen3.5-0.8B on PathVQA validation (6,259 samples); federated scores are at round 9. Centralized r = 32 uses 1,000 steps with batch 256. The three heterogeneous methods differ by at most 0.27 percentage points in these runs.
+</details>
 
-</div>
-
-## Where does the cost go?
+### How much faster?
 
 ![Theoretical cost per step: FlexLoRA is dominated by the full-matrix SVD, Theta of d cubed; QR-SVD is dominated by the two thin QRs, Theta of d rho squared; the ratio is Theta of d over rho, squared](assets/08_cost_breakdown_theory.png)
 
 <div align="justify">
 
-Theoretical leading-order terms for one square layer ($d_{\mathrm{out}}=d_{\mathrm{in}}=d$), thesis Eq. 3.5. Constants and hardware are ignored, so the ratio shows how the gain scales, not the exact speedup; measured speedups follow below.
+**In theory** the gain grows as $(d/\rho)^2$ (thesis Eq. 3.5). **Measured** on one A100 with $\rho=120$:
 
 </div>
 
-## How much faster is QR-SVD aggregation?
+| Model-size proxy | Adapted matrices | FlexLoRA | QR-SVD | Speedup |
+|---|---:|---:|---:|---:|
+| Qwen3.5-0.8B ($d=1024$) | 186 | 42.52 s | 0.923 s | **46×** |
+| Qwen3.5-9B ($d=4096$) | 248 | 1727 s | 1.617 s | **1068×** |
+| Qwen3.5-27B ($d=5120$) | 496 | 5861 s (≈ 98 min) | 3.268 s | **1793×** |
 
 <div align="justify">
 
-The figure combines the three model-proxy curves from thesis Figure 5.9 / Table 5.4. Each curve uses five runs on an A100; increasing the client count also increases the total rank.
+Server-side aggregation time per round, mean of five runs (thesis Table 5.3).
 
 </div>
 
-$$
-\mathrm{Speedup}_i=\frac{t_{\mathrm{FlexLoRA},i}}{t_{\mathrm{QR\text{-}SVD},i}},\qquad
-\mathrm{plotted\ speedup}=\frac{1}{5}\sum_{i=1}^{5}\mathrm{Speedup}_i.
-$$
-
-<div align="justify">
-
-Here, $t$ denotes aggregation time; larger values mean greater acceleration.
-
-</div>
+### When does it help?
 
 ![QR-SVD aggregation speedup across client counts for three model proxy workloads](assets/03_when_qrsvd_helps.png)
 
-<div align="justify">
-
-[Original five-run benchmark JSON](results/benchmarks) · [Recompute the summary](eval/summarize_benchmarks.py)
-
-</div>
-
-## What scenarios is QR-SVD best suited for?
+- **Larger models gain more:** the speedup grows with $d$.
+- **More clients or higher ranks gain less:** as $\rho$ approaches $d$, the gain shrinks (0.8B: 46× at 4 clients, 5× at 20).
+- **Best fit:** cross-silo FL, with a few organizations and moderate ranks, so that $\rho \ll d$.
 
 <div align="justify">
 
-**Cross-silo federated learning** involves a small, stable set of organizations training a shared model while keeping their data local. As the figure above shows, QR-SVD is particularly attractive for large weight matrices when the total participating LoRA rank $\rho$ is small relative to the matrix dimensions.
+Speedup $=t_{\mathrm{FlexLoRA}}/t_{\mathrm{QR\text{-}SVD}}$, mean of five per-run ratios; 4 to 20 clients repeat the ranks [64, 32, 16, 8] ($\rho$ = 120 to 600). Source: thesis Figure 5.9 / Table 5.4.
 
 </div>
 
-<div align="justify">
+## Scope and limitations
 
-For setup and commands, see the [running guide](docs/running.md).
-
-</div>
-
-<div align="justify">
-
-Accuracy values are reported thesis results; per-sample validation prediction files are not included in this snapshot.
-
-
-</div>
+- Timings cover server-side aggregation only, on synthetic square proxy matrices, not end-to-end training.
+- Accuracy comes from four clients with approximately IID data and a single seed.
+- The theoretical ratio assumes square layers and ignores constants and hardware.
+- Accuracy values are reported thesis results; per-sample prediction files are not included.
