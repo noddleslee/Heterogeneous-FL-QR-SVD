@@ -139,10 +139,10 @@ Aggregation time per round on one A100 ($\rho=120$): **0.8B** 42.5 s → 0.9 s �
 
 ### When does it help?
 
-![QR-SVD aggregation speedup across client counts for three model proxy workloads](assets/03_when_qrsvd_helps_v2.png)
+![QR-SVD aggregation speedup across client counts for three model proxy workloads](assets/03_when_qrsvd_helps_v3.png)
 
 - **Larger models gain more:** the speedup grows with $d$.
-- **More clients or higher ranks gain less:** as $\rho$ approaches $d$, the gain shrinks (0.8B: 46× at 4 clients, 5× at 20).
+- **More clients or higher ranks gain less:** as $\rho$ approaches $d$, the gain shrinks (0.8B: 46× at 4 clients, 5× at 20; thesis Table 5.4).
 - **Best fit:** cross-silo FL, with a few organizations and moderate ranks, so that $\rho \ll d$.
 
 ## Scope and limitations
