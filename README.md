@@ -61,7 +61,9 @@ The four hospitals have different computing and GPU memory budgets, so they use 
 | Method | Different ranks? | How the server aggregates | Limitation |
 |---|:---:|---|---|
 | **FedAvg** | ✗ | Averages $B$ and $A$ element-wise | Needs one shared rank |
-| **HETLoRA** | ✓ | Zero-pads factors to a common rank and averages $B$ and $A$ separately; clients self-prune their rank | Averaging factors is not averaging updates: $\sum_k w_k B_k A_k \neq (\sum_k w_k B_k)(\sum_k w_k A_k)$; sensitive to the pruning parameter $\gamma$ |
+| **HETLoRA** | ✓ | Zero-pads factors to a common rank and averages $B$ and $A$ separately; clients self-prune their rank | Averaging factors is not averaging updates: $\sum_k w_k B_k A_k \neq (\sum_k w_k B_k)(\sum_k w_k A_k)$; 
+
+sensitive to the pruning parameter $\gamma$ |
 | **FlexLoRA** | ✓ | Rebuilds each full update $B_k A_k$, averages, then truncates with an SVD | The full-matrix SVD is expensive: **42.52 s per round** on an NVIDIA A100 |
 
 ![FlexLoRA server aggregation in four steps; step 3, the full-matrix SVD, is highlighted as the bottleneck](assets/05_flexlora_bottleneck.png)
