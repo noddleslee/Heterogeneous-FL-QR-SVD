@@ -11,7 +11,7 @@
 - [Background](#background)
 - [Use case and experimental setting](#use-case-and-experimental-setting)
 - [How do we aggregate LoRA updates with different ranks?](#how-do-we-aggregate-lora-updates-with-different-ranks)
-- [ QR-SVD: The efficient aggregation of FlexLoRA](#the-efficient-aggregation-of-flexlora)
+- [QR-SVD: The efficient aggregation of FlexLoRA](#the-efficient-aggregation-of-flexlora)
   - [What is QR-SVD?](#what-is-qr-svd)
   - [Does it change the result?](#does-it-change-the-result)
   - [How much faster?](#how-much-faster)
