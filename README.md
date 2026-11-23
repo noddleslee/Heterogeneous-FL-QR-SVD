@@ -111,7 +111,7 @@ Left: adapted from Figure 2 of [Bai et al., NeurIPS 2024](https://proceedings.ne
 
 <div align="justify">
 
-**No, up to floating-point error.** One aggregation step returns the same rank-$r_g$ truncated update as FlexLoRA (thesis §5.4.1). In the evaluated runs, QR-SVD reaches **59.00%** and FlexLoRA **59.10%** (single seed).
+**No, up to floating-point error.** One aggregation step returns the same truncated update of rank $r_g$ as FlexLoRA (thesis §5.4.1). In the evaluated runs, QR-SVD reaches **59.00%** and FlexLoRA **59.10%** (single seed).
 
 </div>
 
