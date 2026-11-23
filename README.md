@@ -74,58 +74,15 @@ Left: Figure 2 of [Bai et al., NeurIPS 2024](https://proceedings.neurips.cc/pape
 
 <div align="justify">
 
-To reduce the cost of FlexLoRA’s full-matrix SVD, we propose **QR-SVD**, the aggregation method developed in this thesis. It changes only the server step; local training and sending each client its top-$r_k$ factors stay the same as in FlexLoRA.
+**QR-SVD** changes only FlexLoRA’s server step: it never forms the full update and runs the SVD on a small $\rho\times\rho$ core instead of a $d_{\mathrm{out}}\times d_{\mathrm{in}}$ matrix.
 
 </div>
 
-![QR-SVD workflow: clients are unchanged from FlexLoRA; the server never forms the full update matrix and runs the SVD on a small rho-by-rho core](assets/06_qrsvd_workflow.png)
-
-**① Stack the client factors.** The full update $W_g$ is never formed:
-
-$$
-W_g=\sum_{k=1}^{K} w_k B_k A_k = PQ,\qquad
-P=\big[\sqrt{w_1}B_1\ \cdots\ \sqrt{w_K}B_K\big],\quad
-Q=\big[\sqrt{w_1}A_1;\ \cdots;\ \sqrt{w_K}A_K\big].
-$$
-
-![Stacking: the B factors of four clients sit side by side in P and the A factors stack row by row in Q; same colour marks the same client](assets/07_stack_P_Q.png)
-
-**② Thin QR on each side** leaves a small core $M$:
-
-$$
-P=Q_P R_P,\quad Q^{\top}=Q_Q R_Q
-\quad\Longrightarrow\quad
-W_g = Q_P\ \underbrace{R_P R_Q^{\top}}_{M\in\mathbb{R}^{\rho\times\rho}}\ Q_Q^{\top}.
-$$
-
-**③ SVD of the core only:** $M=U_M\Sigma_M V_M^{\top}$.
-
-**④ Map back and truncate.** $Q_P U_M$ and $Q_Q V_M$ are the singular vectors of $W_g$, so keeping the top $r_g$ gives the same truncated update as FlexLoRA, up to floating-point error:
-
-$$
-B_g=Q_P U_M[:,:r_g]\ \Sigma_M[:r_g]^{1/2},\qquad
-A_g=\Sigma_M[:r_g]^{1/2}\ \big(Q_Q V_M[:,:r_g]\big)^{\top}.
-$$
+![QR-SVD: the FlexLoRA workflow with the client parts greyed out as unchanged and the server part replaced by QR-SVD (no full-size W, SVD on a rho-by-rho core), next to the four aggregation steps](assets/06_qrsvd_workflow.png)
 
 <div align="justify">
 
-Here, $d_{\mathrm{out}}$ and $d_{\mathrm{in}}$ denote the output and input dimensions of the adapted weight matrix.
-
-</div>
-
-<div align="justify">
-
-**The key efficiency condition:** in the intended low-rank setting, the total client rank is much smaller than the full matrix dimensions:
-
-</div>
-
-$$
-\rho=\sum_{k=1}^{K}r_k \ll \min(d_{\mathrm{out}},d_{\mathrm{in}}).
-$$
-
-<div align="justify">
-
-For example, with $\rho=120$ and $d_{\mathrm{out}}=d_{\mathrm{in}}=1024$, the core SVD operates on a **120 × 120** matrix instead of a **1024 × 1024** matrix.
+Left: adapted from Figure 2 of [Bai et al., NeurIPS 2024](https://proceedings.neurips.cc/paper_files/paper/2024/hash/1a134b50202088aa8c595cc99b310e5a-Abstract-Conference.html), with permission. $d_{\mathrm{out}}, d_{\mathrm{in}}$: output and input dimensions of the adapted weight matrix. Method: thesis §3.3–3.3.1.
 
 </div>
 
@@ -135,12 +92,6 @@ For example, with $\rho=120$ and $d_{\mathrm{out}}=d_{\mathrm{in}}=1024$, the co
 ![Full QR versus thin QR: with full QR the extra columns of Q_P meet zero rows of R_P and the core grows to d_out by d_in; with thin QR the core is rho by rho](assets/09_thin_vs_full_qr.png)
 
 </details>
-
-<div align="justify">
-
-Method: thesis §3.3–3.3.1. Local training follows FlexLoRA.
-
-</div>
 
 ## Does QR-SVD preserve model accuracy?
 
